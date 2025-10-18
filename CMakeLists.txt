@@ -12,7 +12,7 @@ endif()
 project ("RoverBot")
 
 # Add source to this project's executable.
-add_executable (RoverBot "RoverBot.cpp" "RoverBot.h" "Robot.h" "Triggers.h" "StateMachine.h" "StateMachine.cpp")
+add_executable (RoverBot "main.cpp"  "Robot.h" "Triggers.h" "StateMachine.h" "StateMachine.cpp"   "State.h" "Math.h" "Math.cpp")
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET RoverBot PROPERTY CXX_STANDARD 20)

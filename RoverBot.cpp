@@ -1,173 +1,164 @@
-﻿#include "RoverBot.h"
-#include <functional>
+﻿#include <functional>
 #include <map>
 #include <iostream>
 
+#include "RoverBot.h"
+
 // Возможные состояния объекта
-enum E_STATES
+enum class State : std::uint8_t
 {
-    TARGET_SELECTION = 0,
-    PLANING = 1,
-    MOVING = 2,
-    WAIT = 3,
-    REALSENCE = 4,
-    READ_UPR = 5,
-    SEND_UPR = 6
+    TargetSelection,
+    Planning,
+    Moving,
+    Wait,
+    RealSense,
+    ReadUpr,
+    SendUpr
 };
 
-// Объект (тележка)
-typedef struct Robo
+struct Triggers
+{
+    bool arduinoError{};
+    bool realSenseError{};
+    bool correctionError{};
+};
+
+struct Robot
 {
     // Координаты
-    int x;
-    int y;
+    int x{};
+    int y{};
 
     // Переходы состояний
-    bool start;
-    bool planing_imposible;
-    bool moving_ok;
-    bool find_obstacle;
-    bool find_target;
-    bool mission_complete;
+    bool start{};
+    bool planningImpossible{};
+    bool movingOk{};
+    bool findObstacle{};
+    bool findTarget{};
+    bool missionComplete{};
 
-    // Триггеры
-    struct triggers
-    {
-        bool arduino_error;
-        bool realsense_error;
-        bool correction_error;
-    };
-    triggers tg;
+    Triggers triggers;
 
-    // Глобальный стоп, для чего-нибудь пригодится
-    bool GLOBAL_STOP = true;
-} Robo;
+    bool globalStop{ true };
+};
 
 // Функция обработки триггеров
-E_STATES trigger(E_STATES our_state, Robo* cart)
+State trigger(State state, Robot const& cart)
 {
-    if ((cart->tg.arduino_error) || (cart->tg.realsense_error) || (cart->tg.correction_error))
+    if (cart.triggers.arduinoError ||
+        cart.triggers.realSenseError ||
+        cart.triggers.correctionError)
     {
-        return TARGET_SELECTION;
+        return State::TargetSelection;
     }
-    else
-    {
-        return our_state;
-    }
-};
+    return state;
+}
 
 // Функции состояний
-E_STATES f_selection(Robo* cart)
+State selectTarget(Robot& cart)
 {
-    if (cart->start)
+    if (cart.start)
     {
-        return PLANING;
+        return State::Planning;
     }
     else
     {
-        return TARGET_SELECTION;
+        return State::TargetSelection;
     }
 };
 
-E_STATES f_planing(Robo* cart)
+State plan(Robot& cart)
 {
-    if (cart->planing_imposible)
+    if (cart.planningImpossible)
     {
-        return TARGET_SELECTION;
+        return State::TargetSelection;
     }
     else
     {
-        return MOVING;
+        return State::Moving;
     }
 };
 
-E_STATES f_moving(Robo* cart)
+State move(Robot& cart)
 {
-    return WAIT;
-};
+    return State::Wait;
+}
 
-E_STATES f_wait(Robo* cart)
+State wait(Robot& cart)
 {
-    if (cart->moving_ok)
+    if (cart.movingOk)
     {
-        return REALSENCE;
+        return State::RealSense;
     }
     else
     {
-        return WAIT;
+        return State::Wait;
     }
 };
 
-E_STATES f_realsence(Robo* cart)
+State realSense(Robot& cart)
 {
-    if (cart->find_obstacle)
+    if (cart.findObstacle)
     {
-        return PLANING;
+        return State::Planning;
     }
-    else if (cart->find_target)
+    else if (cart.findTarget)
     {
-        return READ_UPR;
+        return State::Planning;
     }
     else
     {
-        return MOVING;
+        return State::Planning;
     }
 };
 
-E_STATES f_read_upr(Robo* cart)
+State readUpr(Robot& cart)
 {
-    if (cart->mission_complete)
+    if (cart.missionComplete)
     {
-        return TARGET_SELECTION;
+        return State::TargetSelection;
     }
     else
     {
-        return SEND_UPR;
+        return State::SendUpr;
     }
 };
 
-E_STATES f_send_upr(Robo* cart)
+State sendUpr(Robot& cart)
 {
-    return READ_UPR;
-};
+    return State::ReadUpr;
+}
 
 // Тип функций для подачи их в словарь
-typedef std::function<E_STATES(Robo* cart)> t_func;
+using StateFunc = std::function<State(Robot&)>;
 
 int main()
 {
-    // Создание экземпляра объекта
-    Robo cart;
-    // Текущее состояние (Нулевое для удобства, сейчас это TARGET_SELECT)
-    E_STATES our_state = (E_STATES)0;
+    Robot cart; // Создание экземпляра объекта
+    
+    State currentState = State::TargetSelection;
 
-    // Словарь состояний и функций переходов
-    std::map<E_STATES, t_func> states;
-    // Его заполнение
-    states[TARGET_SELECTION] = f_selection;
-    states[PLANING] = f_planing;
-    states[MOVING] = f_moving;
-    states[WAIT] = f_wait;
-    states[REALSENCE] = f_realsence;
-    states[READ_UPR] = f_read_upr;
-    states[SEND_UPR] = f_send_upr;
+    std::map<State, StateFunc> states; // Словарь состояний и функций переходов
+    
+    states[State::TargetSelection] = selectTarget;
+    states[State::Planning] = plan;
+    states[State::Moving] = move;
+    states[State::Wait] = wait;
+    states[State::RealSense] = realSense;
+    states[State::ReadUpr] = readUpr;
+    states[State::SendUpr] = sendUpr;
 
     // Цикл перехода из состояния в состояние
-    while (cart.GLOBAL_STOP)
+    while (cart.globalStop)
     {
-        our_state = trigger(our_state, &cart);
-
-        auto _s = states.find(our_state);
-
-        if (_s == states.end())
+        currentState = trigger(currentState, cart);
+        if (auto it = states.find(currentState); it != states.end())
         {
-            // Состояние не найдено
-            cart.GLOBAL_STOP = false;
-            break;
+            currentState = it->second(cart);
         }
         else
         {
-            our_state = states[our_state](&cart);
+            cart.globalStop = false;
         }
     }
 

@@ -1,7 +1,5 @@
-﻿# CMakeList.txt : CMake project for RoverBot, include source and define
-# project specific logic here.
-#
-cmake_minimum_required (VERSION 3.8)
+﻿# CMakeLists.txt : CMake project for RoverBot
+cmake_minimum_required(VERSION 3.8)
 
 # Enable Hot Reload for MSVC compilers if supported.
 if (POLICY CMP0141)
@@ -9,13 +7,43 @@ if (POLICY CMP0141)
   set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
 endif()
 
-project ("RoverBot")
+project(RoverBot)
 
-# Add source to this project's executable.
-add_executable (RoverBot "main.cpp"  "Robot.h" "Triggers.h" "StateMachine.h" "StateMachine.cpp"   "State.h" "Math.h" "Math.cpp")
+# Указываем, что исходники лежат в rover/
+set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/rover)
 
-if (CMAKE_VERSION VERSION_GREATER 3.12)
-  set_property(TARGET RoverBot PROPERTY CXX_STANDARD 20)
+# Список CPP-файлов
+set(SOURCES
+    ${SOURCE_DIR}/main.cpp
+    ${SOURCE_DIR}/StateMachine.cpp
+    ${SOURCE_DIR}/State.cpp
+    ${SOURCE_DIR}/MathLib.cpp
+    ${SOURCE_DIR}/Logger.cpp
+)
+
+# Заголовочные файлы (для IDE, не обязательны для сборки)
+set(HEADERS
+    ${SOURCE_DIR}/Robot.h
+    ${SOURCE_DIR}/Triggers.h
+    ${SOURCE_DIR}/StateMachine.h
+    ${SOURCE_DIR}/State.h
+    ${SOURCE_DIR}/MathLib.h
+    ${SOURCE_DIR}/Logger.h
+    ${SOURCE_DIR}/Target.h
+    ${SOURCE_DIR}/json.hpp
+)
+
+# Создаём исполняемый файл
+add_executable(RoverBot ${SOURCES} ${HEADERS} "rover/NetworkCommand.cpp" "rover/NetworkCommand.h")
+
+if(WIN32)
+    target_compile_definitions(RoverBot PRIVATE _USE_MATH_DEFINES)
 endif()
 
-# TODO: Add tests and install targets if needed.
+# Устанавливаем стандарт C++20
+if(CMAKE_VERSION VERSION_GREATER 3.12)
+    set_property(TARGET RoverBot PROPERTY CXX_STANDARD 20)
+endif()
+
+# Добавляем rover/ в include path
+target_include_directories(RoverBot PRIVATE ${SOURCE_DIR})

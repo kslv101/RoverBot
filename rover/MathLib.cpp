@@ -1,18 +1,9 @@
 #include "MathLib.h"
 #include <algorithm>
+#include <cmath>
 
 namespace mathLib
 {
-    constexpr float dot(const Vec2& a, const Vec2& b) noexcept
-    {
-        return a.x * b.x + a.y * b.y;
-    }
-
-    constexpr float dot(const Vec3& a, const Vec3& b) noexcept
-    {
-        return a.x * b.x + a.y * b.y + a.z * b.z;
-    }
-
     float magnitude(const Vec2& v) noexcept
     {
         return std::sqrt(v.x * v.x + v.y * v.y);
@@ -40,14 +31,4 @@ namespace mathLib
         c = std::clamp(c, -1.0f, 1.0f);
         return std::acos(c);
     }
-
-    constexpr Vec2 operator-(const Vec2& a, const Vec2& b) noexcept
-    {
-        return Vec2(a.x - b.x, a.y - b.y);
-    }
-
-    constexpr Vec3 operator-(const Vec3& a, const Vec3& b) noexcept
-    {
-        return Vec3(a.x - b.x, a.y - b.y, a.z - b.z);
-    }
-} // namespace math
+} // namespace mathLib

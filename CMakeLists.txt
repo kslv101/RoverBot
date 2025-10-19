@@ -19,6 +19,9 @@ set(SOURCES
     ${SOURCE_DIR}/State.cpp
     ${SOURCE_DIR}/MathLib.cpp
     ${SOURCE_DIR}/Logger.cpp
+    ${SOURCE_DIR}/NetworkCommand.cpp
+    ${SOURCE_DIR}/NavigationMap.cpp
+    ${SOURCE_DIR}/PathPlanner.cpp
 )
 
 # Заголовочные файлы (для IDE, не обязательны для сборки)
@@ -31,10 +34,14 @@ set(HEADERS
     ${SOURCE_DIR}/Logger.h
     ${SOURCE_DIR}/Target.h
     ${SOURCE_DIR}/json.hpp
+    ${SOURCE_DIR}/stb_image.h
+    ${SOURCE_DIR}/NetworkCommand.h
+    ${SOURCE_DIR}/NavigationMap.h
+    ${SOURCE_DIR}/PathPlanner.h
 )
 
 # Создаём исполняемый файл
-add_executable(RoverBot ${SOURCES} ${HEADERS} "rover/NetworkCommand.cpp" "rover/NetworkCommand.h")
+add_executable(RoverBot ${SOURCES} ${HEADERS})
 
 if(WIN32)
     target_compile_definitions(RoverBot PRIVATE _USE_MATH_DEFINES)
@@ -44,6 +51,14 @@ endif()
 if(CMAKE_VERSION VERSION_GREATER 3.12)
     set_property(TARGET RoverBot PROPERTY CXX_STANDARD 20)
 endif()
+
+# Подключаем yaml-cpp
+add_subdirectory(extern/yaml-cpp yaml-cpp-build)
+target_link_libraries(RoverBot PRIVATE yaml-cpp)
+
+# Копируем карты в директорию сборки (рядом с .exe)
+file(COPY ${CMAKE_SOURCE_DIR}/maps/
+     DESTINATION ${CMAKE_BINARY_DIR}/maps)
 
 # Добавляем rover/ в include path
 target_include_directories(RoverBot PRIVATE ${SOURCE_DIR})

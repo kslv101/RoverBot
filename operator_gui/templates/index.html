@@ -1,0 +1,98 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title>RoverBot Operator</title>
+    <meta charset="utf-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px;
+        }
+
+        .form-group {
+            margin: 15px 0;
+        }
+
+        input, select, button {
+            padding: 8px;
+            font-size: 16px;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+            button:hover {
+                background: #45a049;
+            }
+
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🪐 RoverBot Operator Console</h1>
+
+    <div class="form-group">
+        <label>IP-адрес робота:</label>
+        <input type="text" id="robotIp" value="{{ robot_ip }}">
+        <button onclick="setRobotIp()">Сохранить</button>
+    </div>
+
+    <div class="form-group">
+        <label>Выберите цель:</label>
+        <select id="targetType">
+            <option value="Circle">Круг</option>
+            <option value="Square">Квадрат</option>
+            <option value="Triangle">Треугольник</option>
+        </select>
+        <button onclick="sendCommand('set_target')">Установить цель</button>
+    </div>
+
+    <div class="form-group">
+        <button onclick="sendCommand('start')" style="background:#2196F3;">▶️ Старт</button>
+        <button onclick="sendCommand('stop')" style="background:#f44336;">⏹️ Стоп</button>
+    </div>
+
+    <div id="status">Готово.</div>
+
+    <script>
+        function setRobotIp() {
+            const ip = document.getElementById('robotIp').value;
+            fetch('/set_robot_ip', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ip: ip})
+            }).then(r => r.json()).then(d => {
+                document.getElementById('status').innerText = 'IP сохранён: ' + ip;
+            });
+        }
+
+        function sendCommand(cmd) {
+            const payload = {cmd: cmd};
+            if (cmd === 'set_target') {
+                payload.target_type = document.getElementById('targetType').value;
+            }
+            fetch('/send_command', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            })
+            .then(r => r.json())
+            .then(d => {
+                document.getElementById('status').innerText = 'Отправлено: ' + JSON.stringify(d.command || d);
+            })
+            .catch(e => {
+                document.getElementById('status').innerText = 'Ошибка: ' + e;
+            });
+        }
+    </script>
+</body>
+</html>

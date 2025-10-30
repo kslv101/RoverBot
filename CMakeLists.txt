@@ -15,7 +15,7 @@ set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/rover)
 # Список CPP-файлов
 set(SOURCES
     ${SOURCE_DIR}/main.cpp
-    ${SOURCE_DIR}/StateMachine.cpp
+    
     ${SOURCE_DIR}/State.cpp
     ${SOURCE_DIR}/MathLib.cpp
     ${SOURCE_DIR}/Logger.cpp
@@ -28,7 +28,7 @@ set(SOURCES
 set(HEADERS
     ${SOURCE_DIR}/Robot.h
     ${SOURCE_DIR}/Triggers.h
-    ${SOURCE_DIR}/StateMachine.h
+    
     ${SOURCE_DIR}/State.h
     ${SOURCE_DIR}/MathLib.h
     ${SOURCE_DIR}/Logger.h
@@ -41,7 +41,7 @@ set(HEADERS
 )
 
 # Создаём исполняемый файл
-add_executable(RoverBot ${SOURCES} ${HEADERS})
+add_executable(RoverBot ${SOURCES} ${HEADERS} "rover/Event.h" "rover/EventQueue.h"  "rover/StateHandlers.h" "rover/StateHandlers.cpp"  "rover/StateEnterHandlers.h" "rover/StateEnterHandlers.cpp")
 
 if(WIN32)
     target_compile_definitions(RoverBot PRIVATE _USE_MATH_DEFINES)

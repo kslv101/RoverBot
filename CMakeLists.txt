@@ -22,6 +22,8 @@ set(SOURCES
     ${SOURCE_DIR}/NetworkCommand.cpp
     ${SOURCE_DIR}/NavigationMap.cpp
     ${SOURCE_DIR}/PathPlanner.cpp
+    ${SOURCE_DIR}/StateHandlers.cpp
+    ${SOURCE_DIR}/StateEnterHandlers.cpp
 )
 
 # Заголовочные файлы (для IDE, не обязательны для сборки)
@@ -38,10 +40,14 @@ set(HEADERS
     ${SOURCE_DIR}/NetworkCommand.h
     ${SOURCE_DIR}/NavigationMap.h
     ${SOURCE_DIR}/PathPlanner.h
+    ${SOURCE_DIR}/Event.h
+    ${SOURCE_DIR}/EventQueue.h
+    ${SOURCE_DIR}/StateHandlers.h
+    ${SOURCE_DIR}/StateEnterHandlers.h
 )
 
 # Создаём исполняемый файл
-add_executable(RoverBot ${SOURCES} ${HEADERS} "rover/Event.h" "rover/EventQueue.h"  "rover/StateHandlers.h" "rover/StateHandlers.cpp"  "rover/StateEnterHandlers.h" "rover/StateEnterHandlers.cpp")
+add_executable(RoverBot ${SOURCES} ${HEADERS} )
 
 if(WIN32)
     target_compile_definitions(RoverBot PRIVATE _USE_MATH_DEFINES)

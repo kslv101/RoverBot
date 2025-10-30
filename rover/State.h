@@ -5,21 +5,14 @@
 // Возможные состояния робота
 enum class State : std::uint8_t
 {
-    Init, // инициализация
-    Idle, // ожидание команды оператора (цели)
-    Checkup, // проверка
+    Init,
+    Idle,
 
-    PlanningRoute, // планирование маршрута
-    MovingToTarget, //едем по пути, проверяем препятствия
-    AvoidingObstacle, //перепланируем и объезжаем или ждём
-    ApproachingTarget,// приближение к цели (донаведение по камере)
+    Planning,
+    ExecutingPath,
+    Docking,
 
-    Wait, //ожидание
-    EmergencyStop, // экстренная остановка
-
-    RealSense,
-    ReadControl,
-    SendControl
+    EmergencyStop
 };
 
-std::string toString(State state);
+std::string toString(State s);

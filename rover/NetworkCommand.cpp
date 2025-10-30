@@ -50,36 +50,39 @@ private:
     SocketGuard& operator=(const SocketGuard&) = delete;
 };
 
-void handleJsonCommand(Robot& rover, const json& cmd)
+void handleJsonCommand(Robot& rover, EventQueue& events, const json& cmd)
 {
-    if (!cmd.contains("cmd"))
-    {
-        log(LogLevel::Warn, "Command missing 'cmd' field");
-        return;
-    }
-
     std::string command = cmd["cmd"].get<std::string>();
 
-    if (command == "select_target")
+    if (command == "set_initial_pose")
     {
-        if (!cmd.contains("id"))
+        float x = cmd["x"].get<float>();
+        float y = cmd["y"].get<float>();
+        rover.initialPosition = { x, y };
+        log(LogLevel::Info, "Initial pose set to (" + std::to_string(x) + ", " + std::to_string(y) + ")");
+    }
+    else if (command == "plan_path")
+    {
+        int targetId = cmd["target_id"].get<int>();
+        if (targetId >= 0 && targetId < static_cast<int>(rover.map.getTargets().size()))
         {
-            log(LogLevel::Warn, "select_target: missing 'id'");
-            return;
+            rover.selectedTargetId = targetId;
+            rover.selectedTarget = rover.map.getTargets()[targetId];
+            log(LogLevel::Info, "Target selected: " + rover.selectedTarget.name);
+            events.push(EventType::TargetSelected);
         }
-        int targetId = cmd["id"].get<int>();
-        rover.pendingTargetId = targetId;
-        rover.newCommandReceived.store(true, std::memory_order_relaxed);
-        log(LogLevel::Info, "Target selected: ID=" + std::to_string(targetId));
+        else
+        {
+            log(LogLevel::Error, "Invalid target ID: " + std::to_string(targetId));
+        }
     }
     else if (command == "start")
     {
-        rover.start.store(true, std::memory_order_relaxed);
-        log(LogLevel::Info, "Start command received");
+        events.push(EventType::StartMission); 
     }
     else if (command == "stop")
     {
-        rover.globalStop = true;
+        events.push(EventType::GlobalStop); 
         log(LogLevel::Info, "Stop command received");
     }
     else
@@ -88,7 +91,7 @@ void handleJsonCommand(Robot& rover, const json& cmd)
     }
 }
 
-void udpListenerLoop(Robot& rover)
+void udpListenerLoop(Robot& rover, EventQueue& events)
 {
 #ifdef _WIN32
     WSADATA wsaData;
@@ -145,7 +148,7 @@ void udpListenerLoop(Robot& rover)
             try
             {
                 auto j = json::parse(std::string(buffer, len));
-                handleJsonCommand(rover, j);
+                handleJsonCommand(rover, events, j);
             }
             catch (const std::exception& e)
             {
@@ -156,10 +159,10 @@ void udpListenerLoop(Robot& rover)
     }
 }
 
-void startCommandListener(Robot& rover)
+void startCommandListener(Robot& rover, EventQueue& eventQueue)
 {
     g_stopListener.store(false, std::memory_order_relaxed);
-    g_listenerThread = std::thread(udpListenerLoop, std::ref(rover));
+    g_listenerThread = std::thread(udpListenerLoop, std::ref(rover), std::ref(eventQueue));
 }
 
 void stopCommandListener()

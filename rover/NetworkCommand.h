@@ -1,8 +1,6 @@
 #pragma once
 #include "Robot.h"
-#include <thread>
-#include <atomic>
+#include "EventQueue.h"
 
-void startCommandListener(Robot& rover);// Запускает фоновый поток для приёма UDP-команд
-
-void stopCommandListener(); // Корректно останавливает поток
+void startCommandListener(Robot& rover, EventQueue& eventQueue);
+void stopCommandListener();

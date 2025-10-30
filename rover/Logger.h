@@ -1,6 +1,7 @@
 #pragma once
 #include <iostream>
 #include <string>
+#include <mutex>
 
 enum class LogLevel
 {
@@ -10,5 +11,7 @@ enum class LogLevel
     Debug,
     State
 };
+
+extern std::mutex g_logMutex;
 
 void log(LogLevel level, const std::string& message);

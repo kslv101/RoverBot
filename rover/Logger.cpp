@@ -3,6 +3,7 @@
 #  include <windows.h>
 #endif
 
+
 void setConsoleColor(LogLevel level)
 {
 #ifdef _WIN32
@@ -27,8 +28,11 @@ void setConsoleColor(LogLevel level)
 #endif
 }
 
+std::mutex g_logMutex;
+
 void log(LogLevel level, const std::string& message)
 {
+    std::lock_guard lock(g_logMutex);
     setConsoleColor(level);
     switch (level)
     {

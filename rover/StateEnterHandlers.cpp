@@ -4,6 +4,17 @@
 
 void onEnterPlanning(Robot& rover, EventQueue& events)
 {
+    // Проверки
+    if (!rover.mapLoaded)
+    {
+        log(LogLevel::Error, "Planning: map not loaded!");
+        events.push(EventType::PathPlanningFailed);
+    }
+    if (rover.selectedTargetId < 0)
+    {
+        log(LogLevel::Error, "Planning: no target selected!");
+        events.push(EventType::PathPlanningFailed);
+    }
     log(LogLevel::Info, "Entering Planning state: computing A* path...");
 
     auto result = pathplanner::computePathAStar(
@@ -17,6 +28,10 @@ void onEnterPlanning(Robot& rover, EventQueue& events)
         rover.currentPath = std::move(result.pathInMeters);
         rover.hasPlannedPath = true;
         rover.currentWaypointIndex = 0;
+
+        log(LogLevel::Info, "Path planned successfully with " +
+            std::to_string(rover.currentPath.size()) + " waypoints.");
+
         events.push(EventType::PathPlanningSucceeded);
     }
     else

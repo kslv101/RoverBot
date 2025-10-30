@@ -65,38 +65,18 @@ State handleIdle(const Robot& rover, EventQueue& events)
 
 State handlePlanning(const Robot& rover, EventQueue& events)
 {
-    // Проверки
-    if (!rover.mapLoaded)
+    while (auto event = events.pop())
     {
-        log(LogLevel::Error, "Planning: map not loaded!");
-        return State::Idle;
+        if (*event == EventType::PathPlanningSucceeded)
+        {
+            return State::ExecutingPath;
+        }
+        else if (*event == EventType::PathPlanningFailed)
+        {
+            return State::Idle;
+        }
     }
-    if (rover.selectedTargetId < 0)
-    {
-        log(LogLevel::Error, "Planning: no target selected!");
-        return State::Idle;
-    }
-
-    log(LogLevel::Info, "Computing path with A*...");
-
-    auto result = pathplanner::computePathAStar(
-        rover.map.getGrid(),
-        rover.currentPosition,           // текущая позиция
-        rover.selectedTarget.position    // цель в метрах
-    );
-
-    if (result.success && !result.pathInMeters.empty())
-    {
-        log(LogLevel::Info, "Path planned successfully with " +
-            std::to_string(result.pathInMeters.size()) + " waypoints.");
-
-        return State::ExecutingPath;
-    }
-    else
-    {
-        log(LogLevel::Warn, "Path planning failed.");
-        return State::Idle;
-    }
+    return State::Planning; // остаёмся, ждём завершения A*
 }
 
 State handleExecutingPath(const Robot& rover, EventQueue& events)

@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+
 #include "MathLib.h"
 
 enum class TargetType : std::uint8_t
@@ -11,9 +12,13 @@ enum class TargetType : std::uint8_t
 
 struct Target
 {
+    int id;
+    std::string name;
     TargetType type{TargetType::Circle};
     mathLib::Vec2 position{0.0f,0.0f};
 };
+
+
 
 inline TargetType parseTargetType(const std::string& s)
 {

@@ -1,13 +1,20 @@
-﻿#include <functional>
-#include <map>
-#include <iostream>
+﻿#include <iostream>
 #include <thread>
 #include <chrono>
+#include <functional>
+#include <map>
 #include <csignal>  // для обработки Ctrl+C
+#include <atomic>
+#include <vector>
 
-#include "StateMachine.h"
+#include "StateHandlers.h"  
+#include "StateEnterHandlers.h"
 #include "Logger.h"
 #include "NetworkCommand.h"
+#include "EventQueue.h"
+
+#include "Robot.h"
+#include <PathPlanner.h>
 
 // Глобальный флаг для корректного завершения
 static std::atomic<bool> g_interruptRequested{ false };
@@ -25,72 +32,57 @@ int main()
     std::signal(SIGTERM, signalHandler);
 #endif
 
-    constexpr bool isDebugEnabled = true;
+    EventQueue eventQueue;
+    Robot rover;
+    rover.mapPath = "maps/warehouse";
+    if (!rover.map.loadFromFile(rover.mapPath))
+    {
+        log(LogLevel::Error, "Map loading failed!");
+        return -1;
+    }
+    rover.mapLoaded = true;
+    rover.currentPosition = { 0.5f, 0.5f };
 
-    int i = 0;
+    rover.selectedTargetId = 0;
+    rover.selectedTarget = rover.map.getTargets()[0];
+    eventQueue.push(EventType::TargetSelected);
+    eventQueue.push(EventType::StartMission);
 
-    Robot rover; // Создание экземпляра объекта
-    startCommandListener(rover); // ← ЗАПУСК СЕТЕВОГО ПОТОКА
-    
+    startCommandListener(rover, eventQueue);
 
-    const std::map<State, StateFunc> stateMachine = { // Словарь состояний и функций переходов
-        { State::Init, init },
-        { State::Idle, idle },
-        { State::PlanningRoute, plan },
-        { State::MovingToTarget, move },
-        { State::AvoidingObstacle, avoidObstacle }, // ← добавьте эту функцию
-        { State::ApproachingTarget, approachTarget },// ← добавьте
-        { State::Wait, wait },
-    };
+    State currentState = State::Idle;
+    log(LogLevel::State, "Starting FSM in state: " + toString(currentState));
 
-    State currentState = State::Init;
     State previousState = currentState;
 
-
-    if constexpr (isDebugEnabled)
-    {
-        log(LogLevel::State, toString(currentState));
-    }
-    
     using namespace std::chrono_literals;
 
     // Цикл перехода из состояния в состояние
-    while (!rover.globalStop && !g_interruptRequested.load(std::memory_order_relaxed))
+    while (!g_interruptRequested.load(std::memory_order_relaxed))
     {
-        // 1. Проверяем внешние триггеры (асинхронные события)
-        State triggeredState = trigger(currentState, rover);
-        if (triggeredState != currentState)
+        auto fsmIt = STATE_HANDLERS.find(currentState);
+        if (fsmIt == STATE_HANDLERS.end())
         {
-            currentState = triggeredState;
+            log(LogLevel::Error, "Unknown state!");
+            break;
         }
-        else
+        State newState = fsmIt->second(rover, eventQueue);
+
+        if (newState != currentState)
         {
-            // 2. Выполняем логику текущего состояния
-            auto it = stateMachine.find(currentState);
-            if (it != stateMachine.end())
+            std::cout << "  |\n  v\n";
+            log(LogLevel::State, toString(newState));
+
+            // Выполняем побочные эффекты при входе в новое состояние
+            auto enterIt = STATE_ENTER_HANDLERS.find(newState);
+            if (enterIt != STATE_ENTER_HANDLERS.end())
             {
-                currentState = it->second(rover);
+                enterIt->second(rover, eventQueue);
             }
-            else
-            {
-                log(LogLevel::Error, "Encountered unknown state! Stopping.");
-                rover.globalStop = true;
-                break;
-            }
+
+            currentState = newState;
         }
 
-        // Логируем переход состояний
-        if (currentState != previousState)
-        {
-            previousState = currentState;
-            if constexpr (isDebugEnabled)
-            {
-                std::cout << "  |\n  v\n";
-                log(LogLevel::State, toString(currentState));
-            }
-        }
-
-        
         std::this_thread::sleep_for(10ms); // Небольшая пауза, чтобы не грузить CPU
     }
 

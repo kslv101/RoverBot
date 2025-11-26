@@ -1,143 +1,280 @@
 #include "StateHandlers.h"
-#include <PathPlanner.h>
+#include "Logger.h"
+#include "Event.h"
+#include "EventQueue.h"
+#include "Robot.h"
+#include "MissionController.h"
 
-const std::map<State, StateHandler> STATE_HANDLERS = {
-    { State::Init, handleInit },
-    { State::Idle, handleIdle },
-    { State::Planning, handlePlanning },
-    { State::ExecutingPath, handleExecutingPath },
-    { State::Docking, handleDocking },
-    { State::EmergencyStop, handleEmergencyStop }
-};
-
-State handleInit(const Robot& rover, EventQueue& events)
+StateHandlers::StateHandlers(Robot& robot, EventQueue& eventQueue, MissionController& missionController) : robot(robot), eventQueue(eventQueue), missionController(missionController)
 {
-    while (auto event = events.pop())
-    {
-        if (*event == EventType::ArduinoError ||
-            *event == EventType::RealSenseError ||
-            *event == EventType::InternalError)
-        {
-            log(LogLevel::Warn, "Init: hardware error detected. Awaiting reset.");
-            return State::Init;
-        }
-    }
-    log(LogLevel::Info, "Initialization completed successfully. Entering Idle state.");
+    handlerMap = {
+        { State::Init, [this](Robot&, EventQueue&) { return this->handleInit(); } },
+        { State::Idle, [this](Robot&, EventQueue&) { return this->handleIdle(); } },
+        { State::Planning, [this](Robot&, EventQueue&) { return this->handlePlanning(); } },
+        { State::ExecutingPath, [this](Robot&, EventQueue&) { return this->handleExecutingPath(); } },
+        { State::Docking, [this](Robot&, EventQueue&) { return this->handleDocking(); } },
+        { State::EmergencyStop, [this](Robot&, EventQueue&) { return this->handleEmergencyStop(); } }
+    };
+}
 
+StateHandlers::StateHandler StateHandlers::getHandlerFor(State state) const
+{
+    auto it = handlerMap.find(state);
+    if (it != handlerMap.end())
+    {
+        return it->second;
+    }
+
+    // Если состояние не найдено — возвращаем заглушку
+    return [](Robot&, EventQueue&) { return State::Idle; };
+}
+
+State StateHandlers::handleInit() const
+{
+    // Обрабатываем ОДНО событие за тик (не блокируемся)
+    auto event = eventQueue.try_pop();
+    if (!event) return State::Init; // нет событий — остаёмся
+
+    switch (event->type)
+    {
+    case EventType::ArduinoError:
+    case EventType::RealSenseError:
+    case EventType::InternalError:
+        log(LogLevel::Warn, "Init: hardware error detected. Awaiting reset.");
+        return State::Init;
+
+    case EventType::StartMission:
+        // Если инициализация завершена — переходим в Idle
+        log(LogLevel::Info, "Initialization completed successfully. Entering Idle state.");
+        return State::Idle;
+
+    default:
+        // Игнорируем другие события
+        break;
+    }
+    return State::Init;
+}
+
+State StateHandlers::handleIdle() const
+{
+    auto event = eventQueue.try_pop();
+    if (!event) return State::Idle;
+
+    switch (event->type)
+    {
+    case EventType::TargetSelected:
+    {
+        if (auto target = robot.getTarget())
+        {
+            log(LogLevel::Info, "Target selected: " + target->name + ". Awaiting Start command.");
+        }
+        else
+        {
+            log(LogLevel::Warn, "TargetSelected received, but no target set.");
+        }
+        return State::Idle;
+    }
+    case EventType::StartMission:
+    {
+        int targetId = robot.getTargetId();
+        if (targetId < 0)
+        {
+            log(LogLevel::Warn, "Start received, but no target selected!");
+            return State::Idle;
+        }
+        // Получаем имя цели для логирования
+        auto target = robot.getTarget();
+        log(LogLevel::Info, "Starting mission to target: " +
+            (target ? target->name : "unknown"));
+        return State::Planning;
+    }
+
+    case EventType::GlobalStop:
+    {
+        log(LogLevel::Info, "Global stop received (ignored in Idle).");
+        return State::Idle;
+    }
+    case EventType::ArduinoError:
+    case EventType::RealSenseError:
+    case EventType::InternalError:
+    {
+        log(LogLevel::Error, "Hardware error in Idle. Entering EmergencyStop.");
+        return State::EmergencyStop;
+    }
+
+    default:
+        break;
+    }
     return State::Idle;
 }
 
-State handleIdle(const Robot& rover, EventQueue& events)
+State StateHandlers::handlePlanning() const
 {
-    while (auto event = events.pop())
+    auto event = eventQueue.try_pop();
+    if (!event) return State::Planning; // ждём результат планировщика
+
+    // Мы ожидаем ТОЛЬКО результат планирования
+    if (event->type == EventType::PathPlanningResult)
     {
-        switch (*event)
+        // Извлекаем payload
+        const PlanningResultData* result = event->getData<PlanningResultData>();
+        if (!result)
         {
-        case EventType::TargetSelected:
-            log(LogLevel::Info, "Target selected. Awaiting Start command.");
-            break;
-
-        case EventType::StartMission:
-            if (rover.selectedTargetId < 0)
-            {
-                log(LogLevel::Warn, "Start received, but no target selected!");
-                return State::Idle;
-            }
-            log(LogLevel::Info, "Starting mission to target: " + rover.selectedTarget.name);
-            return State::Planning;
-
-        case EventType::GlobalStop:
-            log(LogLevel::Info, "Global stop received (ignored in Idle).");
-            break;
-
-        case EventType::ArduinoError:
-        case EventType::RealSenseError:
-        case EventType::InternalError:
-            log(LogLevel::Error, "Hardware error in Idle. Entering EmergencyStop.");
-            return State::EmergencyStop;
-
-        default:
-            break;
+            log(LogLevel::Error, "Planning: received PathPlanningResult without data!");
+            return State::Idle;
         }
-    }
-    return State::Idle;
-}
 
-State handlePlanning(const Robot& rover, EventQueue& events)
-{
-    while (auto event = events.pop())
-    {
-        if (*event == EventType::PathPlanningSucceeded)
+        if (result->success && !result->path.empty())
         {
+            //  устанавливаем путь через безопасный метод
+            robot.setPath(std::vector<mathLib::Vec2>(result->path)); // копируем
             return State::ExecutingPath;
         }
-        else if (*event == EventType::PathPlanningFailed)
+        else
         {
+            // планировщик не смог найти путь
+            log(LogLevel::Warn, "Path planning failed. Returning to Idle.");
             return State::Idle;
         }
     }
-    return State::Planning; // остаёмся, ждём завершения A*
-}
 
-State handleExecutingPath(const Robot& rover, EventQueue& events)
-{
-    while (auto event = events.pop())
+    // Обработка экстренных событий (приоритет выше планирования)
+    switch (event->type)
     {
-        switch (*event)
-        {
-        case EventType::ObstacleDetected:
-        case EventType::PathBlocked:
-            log(LogLevel::Warn, "Obstacle detected. Stopping motion.");
-            // Можно перейти в Replanning, но пока в Idle
-            return State::Idle;
-
-        case EventType::TargetInView:
-            log(LogLevel::Info, "Target in view. Switching to docking.");
-            return State::Docking;
-
-        case EventType::DestinationReached:
-            log(LogLevel::Info, "Destination reached. Mission complete.");
-            return State::Idle;
-
-        case EventType::GlobalStop:
-            log(LogLevel::Info, "Global stop during motion.");
-            return State::Idle;
-
-        default:
-            break;
-        }
+    case EventType::GlobalStop:
+    {
+        log(LogLevel::Info, "Global stop during planning. Aborting.");
+        return State::Idle;
+    }
+    case EventType::ArduinoError:
+    case EventType::RealSenseError:
+    case EventType::InternalError:
+    {
+        log(LogLevel::Error, "Hardware error during planning. Entering EmergencyStop.");
+        return State::EmergencyStop;
+    }
+    default:
+        break;
     }
 
-    
-    return State::ExecutingPath; // Пока просто остаёмся в состоянии
+    return State::Planning;
 }
 
-State handleDocking(const Robot& rover, EventQueue& events)
+State StateHandlers::handleExecutingPath() const
 {
-    while (auto event = events.pop())
+    missionController.update();
+
+    auto event = eventQueue.try_pop();
+    if (!event) return State::ExecutingPath; // продолжаем движение
+
+    switch (event->type)
     {
-        if (*event == EventType::DestinationReached)
+    case EventType::ObstacleDetected:
+    {
+        // Извлекаем данные препятствия
+        const ObstacleData* obstacle = event->getData<ObstacleData>();
+        if (obstacle)
         {
-            log(LogLevel::Info, "Docking complete.");
-            return State::Idle;
+            log(LogLevel::Warn, "Obstacle detected at (" +
+                std::to_string(obstacle->position.x) + ", " +
+                std::to_string(obstacle->position.y) +
+                "), distance: " + std::to_string(obstacle->distance) + "m");
         }
-        if (*event == EventType::GlobalStop)
+        else
         {
-            return State::Idle;
+            log(LogLevel::Warn, "Obstacle detected (no data).");
         }
+        return State::Idle; // Пока возвращаемся в Idle, можно добавить Replanning
+    }
+
+    case EventType::PathBlocked:
+        log(LogLevel::Warn, "Path blocked. Stopping motion.");
+        missionController.stopMission();
+        return State::Idle;
+
+    case EventType::TargetInView:
+        if (auto target = robot.getTarget())
+        {
+            missionController.enableVelocityMode(target->position);
+        }
+
+        log(LogLevel::Info, "Target in view. Switching to docking.");
+        return State::Docking;
+
+    case EventType::DestinationReached:
+        log(LogLevel::Info, "Destination reached. Mission complete.");
+        robot.clearPath(); // очищаем путь
+        return State::Idle;
+
+    case EventType::GlobalStop:
+        log(LogLevel::Info, "Global stop during motion. Halting.");
+        return State::Idle;
+
+        // Ошибки оборудования
+    case EventType::ArduinoError:
+    case EventType::RealSenseError:
+    case EventType::InternalError:
+        log(LogLevel::Error, "Hardware error during motion. Entering EmergencyStop.");
+        return State::EmergencyStop;
+
+    default:
+        break;
+    }
+    return State::ExecutingPath;
+}
+
+State StateHandlers::handleDocking() const
+{
+    auto event = eventQueue.try_pop();
+    if (!event) return State::Docking;
+
+    switch (event->type)
+    {
+    case EventType::DestinationReached:
+        log(LogLevel::Info, "Docking complete. Returning to Idle.");
+        robot.clearPath();
+        return State::Idle;
+
+    case EventType::GlobalStop:
+        log(LogLevel::Info, "Global stop during docking.");
+        return State::Idle;
+
+        // Ошибки
+    case EventType::ArduinoError:
+    case EventType::RealSenseError:
+    case EventType::InternalError:
+        log(LogLevel::Error, "Hardware error during docking. Entering EmergencyStop.");
+        return State::EmergencyStop;
+
+    default:
+        break;
     }
     return State::Docking;
 }
 
-State handleEmergencyStop(const Robot& rover, EventQueue& events)
+State StateHandlers::handleEmergencyStop() const
 {
-    while (auto event = events.pop())
+    auto event = eventQueue.try_pop();
+    if (!event) return State::EmergencyStop; // остаёмся в стопе
+
+    switch (event->type)
     {
-        if (*event == EventType::GlobalStop)
-        {
-            // остаёмся в стопе
-        }
+    case EventType::ResetEmergency:
+        log(LogLevel::Info, "Emergency reset requested. Returning to Idle.");
+        robot.clearPath(); // сбрасываем все планы
+        robot.clearTarget(); // сбрасываем цель
+        return State::Idle;
+
+    case EventType::GlobalStop:
+        // игнорируем, уже в стопе
+        return State::EmergencyStop;
+
+        // В EmergencyStop НЕ обрабатываем другие события (TargetSelected, StartMission и т.д.)
+        // Оператор должен явно сбросить Emergency
+
+    default:
+        log(LogLevel::Debug, "EmergencyStop: ignoring event " + std::to_string(static_cast<int>(event->type)));
+        break;
     }
-    // Остаёмся в EmergencyStop до ручного сброса 
     return State::EmergencyStop;
 }

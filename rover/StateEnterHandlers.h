@@ -1,15 +1,34 @@
-// StateEnterHandlers.h
+﻿// StateEnterHandlers.h
 #pragma once
-#include <functional>
 #include "State.h"
-#include "Robot.h"
-#include "EventQueue.h"
+#include <functional>
+#include <map>
 
-using EnterHandler = std::function<void(Robot&, EventQueue&)>;
+struct Robot;
+class EventQueue;
+class MissionController;
 
-void onEnterPlanning(Robot& rover, EventQueue& events);
-void onEnterExecutingPath(Robot& rover, EventQueue& events);
-void onEnterEmergencyStop(Robot& rover, EventQueue& events);
+class StateEnterHandlers
+{
+public:
+    explicit StateEnterHandlers(Robot& robot, EventQueue& eventQueue, MissionController& missionController);
 
+    using EnterHandler = std::function<void(Robot&, EventQueue&)>;
 
-extern const std::map<State, EnterHandler> STATE_ENTER_HANDLERS;
+    // Возвращаем обработчик для конкретного состояния
+    EnterHandler getHandlerFor(State state) const;
+
+private:
+    Robot& m_robot;
+    EventQueue& m_eventQueue;
+    MissionController& m_missionController;
+
+    // Приватные методы
+    void onEnterIdle() const;
+    void onEnterPlanning() const;
+    void onEnterExecutingPath() const;
+    void onEnterEmergencyStop() const;
+
+    std::map<State, EnterHandler> m_enterMap;
+};
+

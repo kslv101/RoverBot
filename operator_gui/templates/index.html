@@ -1,98 +1,372 @@
-﻿<!DOCTYPE html>
-<html>
+﻿<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="ru">
 <head>
-    <title>RoverBot Operator</title>
-    <meta charset="utf-8">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🪐 RoverBot Operator Console</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 20px;
+            background: #f5f7fa;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
 
         .form-group {
             margin: 15px 0;
         }
 
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
         input, select, button {
-            padding: 8px;
+            padding: 10px;
             font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            width: 100%;
         }
 
         button {
-            background: #4CAF50;
+            background: #3498db;
             color: white;
-            border: none;
             cursor: pointer;
+            font-weight: bold;
         }
 
             button:hover {
-                background: #45a049;
+                background: #2980b9;
             }
+
+        .btn-success {
+            background: #2ecc71;
+        }
+
+            .btn-success:hover {
+                background: #27ae60;
+            }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+            .btn-danger:hover {
+                background: #c0392b;
+            }
+
+        .map-container {
+            position: relative;
+            margin: 20px 0;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        #mapCanvas {
+            display: block;
+            width: 100%;
+            background: #eee;
+        }
+
+        .target {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+        }
+
+        .target-label {
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
 
         #status {
             margin-top: 20px;
-            padding: 10px;
-            background: #f0f0f0;
+            padding: 12px;
+            background: #e8f4fc;
+            border-left: 4px solid #3498db;
+            border-radius: 4px;
         }
+
+        .targets-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .target-item {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+            .target-item:hover {
+                background: #f0f8ff;
+            }
+
+            .target-item.selected {
+                border-color: #3498db;
+                background: #e8f4fc;
+            }
     </style>
 </head>
 <body>
-    <h1>🪐 RoverBot Operator Console</h1>
+    <div class="container">
+        <!--<header>
+            <h1>🪐 RoverBot Operator Console</h1>
+            <p>Управление складским роботом</p>
+        </header>-->
 
-    <div class="form-group">
-        <label>IP-адрес робота:</label>
-        <input type="text" id="robotIp" value="{{ robot_ip }}">
-        <button onclick="setRobotIp()">Сохранить</button>
+        <div class="card">
+            <div class="form-group">
+                <label>IP-адрес робота:</label>
+                <input type="text" id="robotIp" value="{{ robot_ip }}">
+                <button onclick="setRobotIp()">Сохранить</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Карта помещения</h2>
+            <div class="map-container">
+                <canvas id="mapCanvas" width="800" height="600"></canvas>
+            </div>
+            <div class="form-group">
+                <label>Выберите цель:</label>
+                <div class="targets-list" id="targetsList"></div>
+            </div>
+            <button class="btn-success" onclick="planPath()">🔍 Построить путь</button>
+            <button class="btn-success" onclick="sendCommand('start')">▶️ Старт</button>
+            <button class="btn-danger" onclick="sendCommand('stop')">⏹️ Стоп</button>
+        </div>
+
+        <div id="status">Готово.</div>
     </div>
-
-    <div class="form-group">
-        <label>Выберите цель:</label>
-        <select id="targetType">
-            <option value="Circle">Круг</option>
-            <option value="Square">Квадрат</option>
-            <option value="Triangle">Треугольник</option>
-        </select>
-        <button onclick="sendCommand('set_target')">Установить цель</button>
-    </div>
-
-    <div class="form-group">
-        <button onclick="sendCommand('start')" style="background:#2196F3;">▶️ Старт</button>
-        <button onclick="sendCommand('stop')" style="background:#f44336;">⏹️ Стоп</button>
-    </div>
-
-    <div id="status">Готово.</div>
 
     <script>
+        let targets = [];
+        let selectedTargetId = null;
+        let initialPose = null;      // ← новое
+        let plannedPath = null;      // ← новое
+        const canvas = document.getElementById('mapCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Параметры карты (должны соответствовать map.yaml)
+        const MAP_WIDTH_M = 10.0;   // ширина в метрах
+        const MAP_HEIGHT_M = 7.5;   // высота в метрах
+
+        // Загрузка карты и целей
+        async function loadMapAndTargets() {
+            const img = new Image();
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                redrawAll(); // перерисовать всё: цели, старт, путь
+            };
+            img.src = '/map_image?' + Date.now();
+
+            const res = await fetch('/targets');
+            targets = await res.json();
+            renderTargetsList();
+            redrawAll();
+        }
+
+        function redrawAll() {
+            // Очистка overlay
+            const container = document.querySelector('.map-container');
+            const overlay = document.getElementById('overlay');
+            if (overlay) overlay.remove();
+
+            const newOverlay = document.createElement('div');
+            newOverlay.id = 'overlay';
+            newOverlay.style.position = 'absolute';
+            newOverlay.style.top = '0';
+            newOverlay.style.left = '0';
+            newOverlay.style.width = canvas.width + 'px';
+            newOverlay.style.height = canvas.height + 'px';
+            newOverlay.style.pointerEvents = 'none';
+            container.appendChild(newOverlay);
+
+            // Рисуем цели
+            targets.forEach(t => {
+                const xPx = (t.pose.x / MAP_WIDTH_M) * canvas.width;
+                const yPx = canvas.height - (t.pose.y / MAP_HEIGHT_M) * canvas.height;
+                const div = document.createElement('div');
+                div.className = 'target';
+                div.style.left = xPx + 'px';
+                div.style.top = yPx + 'px';
+                div.style.pointerEvents = 'auto';
+                div.onclick = () => selectTarget(t.id);
+                const color = t.type === "Circle" ? "#2ecc71" : t.type === "Square" ? "#3498db" : "#e74c3c";
+                div.innerHTML = `
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="${color}">
+                        <circle cx="12" cy="12" r="10" stroke="${color}" stroke-width="2" fill="white"/>
+                    </svg>
+                    <div class="target-label">${t.name}</div>
+                `;
+                newOverlay.appendChild(div);
+            });
+
+            // Рисуем начальную позицию
+            if (initialPose) {
+                const xPx = (initialPose.x / MAP_WIDTH_M) * canvas.width;
+                const yPx = canvas.height - (initialPose.y / MAP_HEIGHT_M) * canvas.height;
+                const startDiv = document.createElement('div');
+                startDiv.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#3498db"/></svg>`;
+                startDiv.style.position = 'absolute';
+                startDiv.style.left = (xPx - 12) + 'px';
+                startDiv.style.top = (yPx - 12) + 'px';
+                newOverlay.appendChild(startDiv);
+            }
+
+            // Рисуем путь
+            if (plannedPath && plannedPath.length > 0) {
+                ctx.strokeStyle = '#3498db';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                for (let i = 0; i < plannedPath.length; i++) {
+                    const xPx = (plannedPath[i].x / MAP_WIDTH_M) * canvas.width;
+                    const yPx = canvas.height - (plannedPath[i].y / MAP_HEIGHT_M) * canvas.height;
+                    if (i === 0) ctx.moveTo(xPx, yPx);
+                    else ctx.lineTo(xPx, yPx);
+                }
+                ctx.stroke();
+            }
+        }
+
+        function renderTargetsList() {
+            const list = document.getElementById('targetsList');
+            list.innerHTML = '';
+            targets.forEach(t => {
+                const item = document.createElement('div');
+                item.className = 'target-item';
+                if (t.id === selectedTargetId) item.classList.add('selected');
+                item.innerHTML = `<strong>${t.name}</strong><br>${t.type}`;
+                item.onclick = () => selectTarget(t.id);
+                list.appendChild(item);
+            });
+        }
+
+        function selectTarget(id) {
+            selectedTargetId = id;
+            renderTargetsList();
+            document.getElementById('status').innerText = `Выбрана цель: ${targets.find(t => t.id === id)?.name}`;
+        }
+
+        // Обработка клика по карте
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left) / canvas.width * MAP_WIDTH_M;
+            const y = (1 - (e.clientY - rect.top) / canvas.height) * MAP_HEIGHT_M;
+
+            if (!initialPose) {
+                // Установка начальной позиции
+                initialPose = { x, y };
+                sendCommand('set_initial_pose', { x, y });
+                document.getElementById('status').innerText = `Начальная позиция: (${x.toFixed(2)}, ${y.toFixed(2)})`;
+            } else if (selectedTargetId !== null) {
+                // Уже выбрана цель — ничего не делаем (можно добавить сброс)
+            }
+            redrawAll();
+        });
+
+        function planPath() {
+            if (!initialPose || selectedTargetId === null) {
+                alert("Сначала установите начальную позицию и выберите цель!");
+                return;
+            }
+            sendCommand('plan_path', { target_id: selectedTargetId });
+        }
+
         function setRobotIp() {
             const ip = document.getElementById('robotIp').value;
             fetch('/set_robot_ip', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ip: ip})
-            }).then(r => r.json()).then(d => {
-                document.getElementById('status').innerText = 'IP сохранён: ' + ip;
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: ip })
+            }).then(() => {
+                document.getElementById('status').innerText = `IP сохранён: ${ip}`;
             });
         }
 
-        function sendCommand(cmd) {
-            const payload = {cmd: cmd};
-            if (cmd === 'set_target') {
-                payload.target_type = document.getElementById('targetType').value;
+        function sendCommand(cmd, extraData = {}) {
+            let payload;
+            if (cmd === 'set_initial_pose') {
+                payload = { cmd, x: extraData.x, y: extraData.y };
+            } else if (cmd === 'plan_path') {
+                payload = { cmd, target_id: extraData.target_id };
+            } else if (cmd === 'select_target') {
+                if (selectedTargetId === null) {
+                    alert('Сначала выберите цель!');
+                    return;
+                }
+                payload = { cmd, id: selectedTargetId };
+            } else {
+                payload = { cmd };
             }
+
             fetch('/send_command', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             })
-            .then(r => r.json())
-            .then(d => {
-                document.getElementById('status').innerText = 'Отправлено: ' + JSON.stringify(d.command || d);
-            })
-            .catch(e => {
-                document.getElementById('status').innerText = 'Ошибка: ' + e;
-            });
+                .then(r => r.json())
+                .then(d => {
+                    if (d.path) {
+                        // Робот вернул путь — сохраняем и рисуем
+                        plannedPath = d.path;
+                        redrawAll();
+                        document.getElementById('status').innerText = 'Путь построен и отображён';
+                    } else {
+                        document.getElementById('status').innerText = 'Команда отправлена: ' + JSON.stringify(d.command);
+                    }
+                })
+                .catch(e => {
+                    document.getElementById('status').innerText = 'Ошибка: ' + e;
+                });
         }
+
+        loadMapAndTargets();
     </script>
 </body>
 </html>

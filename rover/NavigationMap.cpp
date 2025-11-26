@@ -1,23 +1,71 @@
 ﻿#include "NavigationMap.h"
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "../extern/stb_image.h"
 
 
 bool NavigationMap::loadFromFile(const std::string& mapBasePath)
 {
     const std::string yamlPath = mapBasePath + ".yaml";
-    const std::string pgmPath = mapBasePath + ".png";
+    const std::string pngPath = mapBasePath + ".png";
     const std::string targetsPath = mapBasePath + "_targets.yaml";
 
-    if (!loadYamlMetadata(yamlPath)) return false;
-    if (!loadPngImage(pgmPath)) return false;
+    auto tempGrid = std::make_shared<OccupancyGrid>();
+
+    if (!loadYamlMetadata(yamlPath, *tempGrid)) return false;
+    if (!loadPngImage(pngPath, *tempGrid)) return false;
     if (!loadTargetsYaml(targetsPath)) return false;
+    inflateObstacles(0.2f); // радиус робота 0.2 м
+
+    {
+        std::lock_guard<std::mutex> lock(gridMutex);
+        grid = tempGrid; // старый grid остаётся жив, пока есть на него ссылки
+    }
 
     log(LogLevel::Info, "Map loaded successfully: " + mapBasePath);
     return true;
 }
 
-bool NavigationMap::loadYamlMetadata(const std::string& yamlPath)
+void NavigationMap::inflateObstacles(float robotRadius)
+{
+    std::lock_guard<std::mutex> lock(gridMutex);
+    if (!grid) return;
+
+    int inflateCells = static_cast<int>(robotRadius / grid->resolution);
+    auto inflatedGrid = std::make_shared<OccupancyGrid>(*grid); // копируем для модификации
+
+    // Проходим по всем препятствиям
+    for (int y = 0; y < grid->height; ++y)
+    {
+        for (int x = 0; x < grid->width; ++x)
+        {
+            int idx = y * grid->width + x;
+            if (grid->data[idx] == 100)
+            { // occupied cell
+// Раздуваем на inflateCells вокруг
+                for (int dy = -inflateCells; dy <= inflateCells; ++dy)
+                {
+                    for (int dx = -inflateCells; dx <= inflateCells; ++dx)
+                    {
+                        int nx = x + dx;
+                        int ny = y + dy;
+                        if (nx >= 0 && nx < grid->width && ny >= 0 && ny < grid->height)
+                        {
+                            inflatedGrid->data[ny * grid->width + nx] = 100;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Заменяем на инфлейтнутую версию
+    grid = inflatedGrid;
+
+    log(LogLevel::Info, "Obstacles inflated by " + std::to_string(inflateCells) + " cells");
+}
+
+
+bool NavigationMap::loadYamlMetadata(const std::string& yamlPath, OccupancyGrid& grid)
 {
     try
     {
@@ -25,8 +73,6 @@ bool NavigationMap::loadYamlMetadata(const std::string& yamlPath)
         grid.resolution = node["resolution"].as<float>(0.05f);
         grid.origin.x = node["origin"][0].as<float>(0.0f);
         grid.origin.y = node["origin"][1].as<float>(0.0f);
-
-        // Размеры пока неизвестны — узнаем из PGM
         return true;
     }
     catch (const std::exception& e)
@@ -36,7 +82,7 @@ bool NavigationMap::loadYamlMetadata(const std::string& yamlPath)
     }
 }
 
-bool NavigationMap::loadPngImage(const std::string& pngPath)
+bool NavigationMap::loadPngImage(const std::string& pngPath, OccupancyGrid& grid)
 {
     int width, height, channels;
     unsigned char* data = stbi_load(pngPath.c_str(), &width, &height, &channels, 1);
@@ -50,13 +96,13 @@ bool NavigationMap::loadPngImage(const std::string& pngPath)
     grid.height = height;
     grid.data.resize(width * height);
 
-    // Загружаем с инверсией Y → grid в мировых координатах
+    // Загружаем с инверсией Y -> grid в мировых координатах
     for (int y = 0; y < height; ++y)
     {
         for (int x = 0; x < width; ++x)
         {
             // data: [0][0] = верхний левый
-            // grid: [0][0] = нижний левый → y_grid = height - 1 - y
+            // grid: [0][0] = нижний левый -> y_grid = height - 1 - y
             uint8_t pixel = data[y * width + x];
             int gridY = height - 1 - y;
             grid.data[gridY * width + x] = pixel;
@@ -68,9 +114,9 @@ bool NavigationMap::loadPngImage(const std::string& pngPath)
     // Конвертация значений
     for (auto& pixel : grid.data)
     {
-        if (pixel < 100) pixel = 100;     // чёрное → occupied
-        else if (pixel > 200) pixel = 0;  // белое → free
-        else pixel = 255;                 // серое → unknown
+        if (pixel < 100) pixel = OCCUPIED;  // чёрное -> occupied
+        else if (pixel > 200) pixel = FREE;  // белое -> free
+        else pixel = UNKNOWN;  // серое -> unknown
     }
 
     saveGridAsDebugPng(grid, "debug_grid.png");
@@ -78,9 +124,10 @@ bool NavigationMap::loadPngImage(const std::string& pngPath)
 }
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include "../extern/stb_image_write.h"
 
-void NavigationMap::saveGridAsDebugPng(const OccupancyGrid& grid, const std::string& outputPath)
+void NavigationMap::saveGridAsDebugPng(const OccupancyGrid& grid,
+                                       const std::string& outputPath) const
 {
     if (grid.data.empty())
     {

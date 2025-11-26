@@ -1,6 +1,8 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <memory>
+#include <mutex>
 #include <yaml-cpp/yaml.h>
 #include <fstream>
 #include <stdexcept>
@@ -21,18 +23,34 @@ struct OccupancyGrid
 class NavigationMap
 {
 public:
-    bool loadFromFile(const std::string& mapBasePath); // без расширени€
+    NavigationMap() = default;
 
-    const OccupancyGrid& getGrid() const { return grid; }
+    bool loadFromFile(const std::string& mapBasePath);
+
+    std::shared_ptr<const OccupancyGrid> getGrid() const
+    {
+        std::lock_guard<std::mutex> lock(gridMutex);
+        return grid; // копируем указатель (атомарно)
+    }
     const std::vector<Target>& getTargets() const { return targets; }
-    bool isValid() const { return !grid.data.empty() && !targets.empty(); }
+    bool isValid() const
+    {
+        std::lock_guard<std::mutex> lock(gridMutex);
+        return grid != nullptr && !grid->data.empty() && !targets.empty();
+    }
+    void inflateObstacles(float robotRadius);
 
 private:
-    OccupancyGrid grid;
+    mutable std::mutex gridMutex;
+    std::shared_ptr<OccupancyGrid> grid;
     std::vector<Target> targets;
 
-    bool loadYamlMetadata(const std::string& yamlPath);
-    bool loadPngImage(const std::string& pgmPath);
-    void saveGridAsDebugPng(const OccupancyGrid& grid, const std::string& outputPath);
+    static constexpr uint8_t OCCUPIED = 100;
+    static constexpr uint8_t FREE = 0;
+    static constexpr uint8_t UNKNOWN = 255;
+   
+    bool loadYamlMetadata(const std::string& yamlPath, OccupancyGrid& grid);
+    bool loadPngImage(const std::string& pngPath, OccupancyGrid& grid);
+    void saveGridAsDebugPng(const OccupancyGrid& grid, const std::string& outputPath) const;
     bool loadTargetsYaml(const std::string& targetsPath);
 };

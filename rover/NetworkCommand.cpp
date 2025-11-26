@@ -18,7 +18,7 @@ using ssize_t = int;
 #include <fcntl.h>
 #endif
 
-#include "json.hpp"
+#include "../extern/json.hpp"
 using json = nlohmann::json;
 
 static std::thread g_listenerThread;
@@ -69,7 +69,7 @@ void handleJsonCommand(Robot& rover, EventQueue& events, const json& cmd)
             rover.selectedTargetId = targetId;
             rover.selectedTarget = rover.map.getTargets()[targetId];
             log(LogLevel::Info, "Target selected: " + rover.selectedTarget.name);
-            events.push(EventType::TargetSelected);
+            events.push(Event(EventType::TargetSelected));
         }
         else
         {
@@ -78,11 +78,11 @@ void handleJsonCommand(Robot& rover, EventQueue& events, const json& cmd)
     }
     else if (command == "start")
     {
-        events.push(EventType::StartMission); 
+        events.push(Event(EventType::StartMission));
     }
     else if (command == "stop")
     {
-        events.push(EventType::GlobalStop); 
+        events.push(Event(EventType::GlobalStop));
         log(LogLevel::Info, "Stop command received");
     }
     else

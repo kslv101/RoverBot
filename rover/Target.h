@@ -18,8 +18,6 @@ struct Target
     mathLib::Vec2 position{0.0f,0.0f};
 };
 
-
-
 inline TargetType parseTargetType(const std::string& s)
 {
     if (s == "Circle" || s == "circle") return TargetType::Circle;

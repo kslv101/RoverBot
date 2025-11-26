@@ -12,8 +12,6 @@ project(RoverBot)
 # Указываем, что исходники лежат в rover/
 set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/rover)
 
-set(EXTERN_DIR ${CMAKE_CURRENT_EXTERN_DIR}/extern)
-
 # Список CPP-файлов
 set(SOURCES
     ${SOURCE_DIR}/main.cpp
@@ -26,18 +24,19 @@ set(SOURCES
     ${SOURCE_DIR}/PathPlanner.cpp
     ${SOURCE_DIR}/StateHandlers.cpp
     ${SOURCE_DIR}/StateEnterHandlers.cpp
-
-    
 )
 
 # Заголовочные файлы (для IDE, не обязательны для сборки)
 set(HEADERS
     ${SOURCE_DIR}/Robot.h
     ${SOURCE_DIR}/Triggers.h
+    
     ${SOURCE_DIR}/State.h
     ${SOURCE_DIR}/MathLib.h
     ${SOURCE_DIR}/Logger.h
     ${SOURCE_DIR}/Target.h
+    ${SOURCE_DIR}/json.hpp
+    ${SOURCE_DIR}/stb_image.h
     ${SOURCE_DIR}/NetworkCommand.h
     ${SOURCE_DIR}/NavigationMap.h
     ${SOURCE_DIR}/PathPlanner.h
@@ -45,13 +44,10 @@ set(HEADERS
     ${SOURCE_DIR}/EventQueue.h
     ${SOURCE_DIR}/StateHandlers.h
     ${SOURCE_DIR}/StateEnterHandlers.h
-
-    "extern/stb_image.h"
-    "extern/json.hpp"
 )
 
 # Создаём исполняемый файл
-add_executable(RoverBot ${SOURCES} ${HEADERS}  "rover/CommandTypes.h" "rover/MissionController.h" "rover/MissionController.cpp" "rover/UartDriver.h" "rover/UartDriver.cpp" "rover/StateMachine.h" "rover/StateMachine.cpp")
+add_executable(RoverBot ${SOURCES} ${HEADERS} )
 
 if(WIN32)
     target_compile_definitions(RoverBot PRIVATE _USE_MATH_DEFINES)

@@ -104,18 +104,33 @@ extern "C" void signalHandler(int) noexcept
 
 int main()
 {
-    // Создаём компоненты
     Robot robot;
     EventQueue eventQueue;
-    UartDriver uartDriver("/dev/ttyUSB0", 115200);
+    //UartDriver uartDriver("/dev/ttyUSB0", 115200);
+    UartDriver uartDriver("COM10", 115200);
+    if (!uartDriver.connect()) {
+        log(LogLevel::Error, "Failed to connect to ESP32 via UART!");
+        log(LogLevel::Error, "Check if device is connected and permissions are set.");
+        return -1;
+    }
+    log(LogLevel::Info, "Successfully connected to ESP32");
+
     MissionController missionController(robot, uartDriver);
+    startCommandListener(robot, eventQueue);
 
-    // Создаём StateMachine (владеет состоянием и управляет жизненным циклом)
+    robot.mapPath = "maps/warehouse";
+    if (!robot.map.loadFromFile(robot.mapPath))
+    {
+        log(LogLevel::Error, "Map loading failed!");
+        return -1;
+    }
+    robot.mapLoaded.store(true);
+    robot.setPose({ 0.5f, 0.5f }, 0.0f);
+
     StateMachine stateMachine(robot, eventQueue, missionController);
-
-    // Запускаем
     try
     {
+        eventQueue.push(Event(EventType::StartMission));
         stateMachine.run();
     }
     catch (const std::exception& e)
@@ -125,6 +140,7 @@ int main()
     }
 
     stateMachine.stop();
+    uartDriver.disconnect();
 
     return 0;
 }

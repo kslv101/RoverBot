@@ -33,7 +33,7 @@ void StateMachine::run()
         if (newState != m_currentState)
         {
             log(LogLevel::Info, "StateMachine: transition " +
-                std::to_string(static_cast<int>(m_currentState.load())) + " → " +
+                std::to_string(static_cast<int>(m_currentState.load())) + " -> " +
                 std::to_string(static_cast<int>(newState)));
 
             // Вызываем onEnter для нового состояния

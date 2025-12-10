@@ -31,7 +31,7 @@ StateHandlers::StateHandler StateHandlers::getHandlerFor(State state) const
 
 State StateHandlers::handleInit() const
 {
-    // Обрабатываем ОДНО событие за тик (не блокируемся)
+    // Обрабатываем одно событие за тик (не блокируемся)
     auto event = eventQueue.try_pop();
     if (!event) return State::Init; // нет событий — остаёмся
 
@@ -113,7 +113,7 @@ State StateHandlers::handlePlanning() const
     auto event = eventQueue.try_pop();
     if (!event) return State::Planning; // ждём результат планировщика
 
-    // Мы ожидаем ТОЛЬКО результат планирования
+    // ожидаем ТОЛЬКО результат планирования
     if (event->type == EventType::PathPlanningResult)
     {
         // Извлекаем payload

@@ -86,7 +86,7 @@ struct Robot
         currentPath = std::move(path);
         hasPlannedPath = !currentPath.empty();
         currentWaypointIndex = hasPlannedPath ? 0 : -1;
-        log(LogLevel::Info, "Path updated with " +
+        log(LogLevel::Info, "RobotState: Path updated with " +
             std::to_string(currentPath.size()) + " waypoints");
     }
 

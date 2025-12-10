@@ -1,31 +1,29 @@
+// UartDriver.h
 #pragma once
 #include <functional>
-#include <optional>
 #include <string>
+#include <atomic>
+#include <vector>
+#include <queue>
 #include "CommandTypes.h"
 
-class UartDriver
-{
+class UartDriver {
 public:
-    using PacketCallback = std::function<void(const commands::CommandPacket&)>;
+    using PacketCallback = std::function<void(const uint8_t* data, size_t size)>;
 
-    explicit UartDriver(const std::string& port, int baud_rate);
+    UartDriver(const std::string& port, int baud_rate);
+    ~UartDriver();
 
+    bool connect();
+    void disconnect();
+    bool sendRaw(const uint8_t* data, size_t size);
+    void setPacketCallback(PacketCallback callback);
     void processIncomingData();
 
-    // Отправка пакета
-    bool sendPacket(const commands::CommandPacket& packet);
-
-    // Установка callback для принятых пакетов
-    void setPacketCallback(PacketCallback cb);
-
-    // Цикл чтения (вызывается из отдельного потока)
-    void readLoop();
-
 private:
-    // Парсинг строки "$GOTO,5,12.45,8.90*CS" в структуру
-    std::optional<commands::CommandPacket> parsePacket(const std::string& line);
-
+    std::string m_port;
+    int m_baudRate;
+    void* m_handle; // HANDLE для Windows
     PacketCallback m_callback;
-    int m_fd; // файловый дескриптор serial
+    std::atomic<bool> m_connected;
 };

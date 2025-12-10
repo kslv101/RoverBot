@@ -5,40 +5,84 @@
 #include <algorithm>
 
 MissionController::MissionController(Robot& robot, UartDriver& uartDriver)
-    : m_robot(robot)
-    , m_uartDriver(uartDriver)
+    : m_robot(robot), m_uartDriver(uartDriver)
 {
-
     // Настраиваем callback для приёма пакетов от Arduino
-    m_uartDriver.setPacketCallback([this](const commands::CommandPacket& packet)
-                                   {
-                                       handleIncomingPacket(packet);
-                                   });
+    m_uartDriver.setPacketCallback([this](const uint8_t* data, size_t size) 
+        {
+        if (size != sizeof(commands::CommandPacket)) 
+        {
+            log(LogLevel::Warn, "UART: Invalid packet size: " + std::to_string(size));
+            return;
+        }
 
-    // Запускаем поток чтения UART (если UartDriver его не имеет)
-    // Если UartDriver сам управляет потоком, то эта строка не нужна
-    m_uartReadingThread.emplace([this](std::stop_token token)
-                                {
-                                    while (!token.stop_requested())
-                                    {
-                                        m_uartDriver.processIncomingData();
-                                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                                    }
-                                });
+        commands::CommandPacket packet;
+        std::memcpy(&packet, data, sizeof(packet));
+
+        // Проверка контрольной суммы
+        const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&packet);
+        uint8_t calculated = 0;
+        for (size_t i = 0; i < sizeof(commands::CommandPacket) - 1; i++) 
+        {
+            calculated ^= bytes[i];
+        }
+
+        if (calculated != packet.checksum) 
+        {
+            log(LogLevel::Error, "UART: Checksum error on packet ID " +
+                std::to_string(packet.cmdId));
+            return;
+        }
+
+        // Обрабатываем пакет
+        handleIncomingPacket(packet);
+        });
+
+    // Запускаем поток чтения UART
+    m_uartReadingThread.emplace([this](std::stop_token token) {
+        while (!token.stop_requested()) {
+            m_uartDriver.processIncomingData();
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        });
 }
 
 MissionController::~MissionController()
 {
-    // Останавливаем миссию
+    // Останавка миссии
     stopMission();
 
-    // Останавливаем поток чтения
-    if (m_uartReadingThread.has_value())
-    {
+    // Останавка потока чтения
+    if (m_uartReadingThread.has_value()) {
         m_uartReadingThread->request_stop();
-        m_uartReadingThread->join();
+        if (m_uartReadingThread->joinable()) {
+            m_uartReadingThread->join();
+        }
     }
 }
+
+void MissionController::sendCommand(const commands::CommandPacket& command) {
+    // Создаём копию для расчёта контрольной суммы
+    commands::CommandPacket cmd = command;
+
+    // Расчёт контрольной суммы (XOR всех байт кроме checksum)
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&cmd);
+    uint8_t checksum = 0;
+    for (size_t i = 0; i < sizeof(commands::CommandPacket) - 1; ++i) {
+        checksum ^= bytes[i];
+    }
+    cmd.checksum = checksum;
+
+    // Отправка БИНАРНЫХ данных
+    if (!m_uartDriver.sendRaw(
+        reinterpret_cast<const uint8_t*>(&cmd),
+        sizeof(cmd)
+    )) {
+        log(LogLevel::Error, "MissionController: UART send failed for command ID " +
+            std::to_string(command.cmdId));
+    }
+}
+
 
 void MissionController::startMission(const std::vector<mathLib::Vec2>& waypoints)
 {
@@ -97,7 +141,6 @@ void MissionController::stopMission()
 void MissionController::update()
 {
     if (!m_isMissionActive) return;
-
     // Получаем актуальную позицию (атомарно)
     auto currentPose = m_robot.getPose();
 
@@ -121,8 +164,7 @@ void MissionController::update()
         }
 
         // Если waypoint достигнут
-        float tolerance = (m_nextWaypointIndex == m_plannedPath.size()) ?
-            FINAL_WAYPOINT_TOLERANCE : DEFAULT_WAYPOINT_TOLERANCE;
+        float tolerance = (m_nextWaypointIndex == m_plannedPath.size()) ? FINAL_WAYPOINT_TOLERANCE : DEFAULT_WAYPOINT_TOLERANCE;
 
         if (isWaypointReached(currentWaypoint, tolerance))
         {
@@ -167,8 +209,9 @@ void MissionController::refillWaypointBuffer()
         const auto& waypoint = m_plannedPath[m_nextWaypointIndex];
         m_waypointBuffer.push(waypoint);
 
-        // Формируем команду
+        // Формирование команды
         commands::CommandPacket command;
+        command.startByte = 0xAA;
         command.type = commands::CmdType::GOTO;
         command.cmdId = static_cast<uint8_t>(m_nextWaypointIndex + 1);
         command.waypointId = static_cast<uint8_t>(m_nextWaypointIndex + 1);
@@ -248,43 +291,46 @@ bool MissionController::isWaypointReached(const mathLib::Vec2& waypoint, float t
     return std::hypot(deltaX, deltaY) < tolerance;
 }
 
-void MissionController::handleIncomingPacket(const commands::CommandPacket& packet)
-{
-    switch (packet.type)
-    {
+void MissionController::handleIncomingPacket(const commands::CommandPacket& packet) {
+    switch (packet.type) {
     case commands::CmdType::REACHED:
-        log(LogLevel::Debug, "MissionController: Arduino confirmed waypoint " +
-            std::to_string(packet.waypointId));
+        log(LogLevel::Info, "ESP32: Waypoint " +
+            std::to_string(packet.waypointId) + " reached");
+
+        // Удаляем из буфера только подтверждённые точки
+        {
+            std::lock_guard lock(m_waypointBufferMutex);
+            if (!m_waypointBuffer.empty()) {
+                m_waypointBuffer.pop();
+            }
+        }
+        refillWaypointBuffer(); // Отправляем следующую точку
         break;
 
     case commands::CmdType::ACK:
-        log(LogLevel::Warn, "MissionController: command acknowledged ID=" +
-            std::to_string(packet.cmdId));
+        if (packet.ack_data == 1) {
+            log(LogLevel::Debug, "ESP32: Command " +
+                std::to_string(packet.cmdId) + " acknowledged");
+        }
+        else {
+            log(LogLevel::Warn, "ESP32: Command " +
+                std::to_string(packet.cmdId) + " rejected");
+            // Повторная отправка (заглушка)
+            // resendCommand(packet.cmdId);
+        }
         break;
 
     default:
-        log(LogLevel::Warn, "MissionController: unexpected packet type " +
+        log(LogLevel::Warn, "Unexpected packet type: " +
             std::to_string(static_cast<int>(packet.type)));
-        break;
     }
 }
 
-void MissionController::sendCommand(const commands::CommandPacket& command)
-{
-    // Рассчитываем контрольную сумму (XOR всех байт)
-    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&command);
-    uint8_t checksum = 0;
-    for (size_t i = 0; i < sizeof(command) - 1; ++i)
-    {
-        checksum ^= bytes[i];
+bool MissionController::verifyChecksum(const commands::CommandPacket& packet) {
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&packet);
+    uint8_t calculated = 0;
+    for (size_t i = 0; i < sizeof(commands::CommandPacket) - 1; i++) {
+        calculated ^= bytes[i];
     }
-
-    // Копируем команду и дописываем checksum
-    commands::CommandPacket cmdWithChecksum = command;
-    cmdWithChecksum.checksum = checksum;
-
-    if (!m_uartDriver.sendPacket(cmdWithChecksum))
-    {
-        log(LogLevel::Error, "MissionController: failed to send command");
-    }
+    return calculated == packet.checksum;
 }

@@ -59,6 +59,7 @@ void handleJsonCommand(Robot& rover, EventQueue& events, const json& cmd)
         float x = cmd["x"].get<float>();
         float y = cmd["y"].get<float>();
         rover.initialPosition = { x, y };
+        rover.setPose(mathLib::Vec2::Vec2(x,y), 0);
         log(LogLevel::Info, "Initial pose set to (" + std::to_string(x) + ", " + std::to_string(y) + ")");
     }
     else if (command == "plan_path")

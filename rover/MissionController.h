@@ -15,99 +15,88 @@ class MissionController
 {
 public:
     // Режимы выполнения миссии
-    enum class ExecutionMode : uint8_t
-    {
+    enum class ExecutionState {
         IDLE,           // Нет активной миссии
-        WAYPOINT,       // Движение к промежуточным точкам (Arduino автопилот)
-        VELOCITY,       // Донаведение по камере (Pi управляет напрямую)
-        DOCKED          // Миссия завершена
+        PLANNING,       // Выполняется планирование
+        EXECUTING,      // Исполняются сегменты
+        COMPLETED,      // Миссия завершена
+        FAILED,         // Миссия прервана с ошибкой
+        EMERGENCY_STOP  // Аварийная остановка
     };
 
 
     explicit MissionController(Robot& robot, UartDriver& uartDriver);
-
-    // Деструктор — останавливает миссию и потоки
     ~MissionController();
 
     // Запрет копирование
     MissionController(const MissionController&) = delete;
     MissionController& operator=(const MissionController&) = delete;
 
-    // Запускает новую миссию по заданному пути
-    //  waypoints Вектор ключевых точек (от A*)
+    // Запуск миссии с ключевыми точками
     void startMission(const std::vector<mathLib::Vec2>& waypoints);
 
-    // Немедленно останавливает миссию
+    // Остановка миссии
     void stopMission();
 
-    // Главный цикл обновления (вызывается каждые 10-50 мс)
+    // Экстренная остановка
+    void emergencyStop();
+
+    // Обновление состояния 
     void update();
 
-    // Переключает в режим донаведения (вызывается при EventType::TargetInView)
-    //  targetPosition Позиция цели в мире (метры)
-    void enableVelocityMode(const mathLib::Vec2& targetPosition);
+    // Обработка входящего пакета от Arduino
+    void handleIncomingPacket(const uint8_t* data, size_t size);
 
-    // Обработчик пакетов от Arduino (вызывается из UART потока)
-    void handleIncomingPacket(const commands::CommandPacket& packet);
-
-    // Возвращает текущий режим выполнения
-    ExecutionMode getCurrentMode() const { return m_currentMode.load(); }
-
-    // Возвращает флаг активности миссии
-    bool isMissionActive() const { return m_isMissionActive.load(); }
-
-    // Отправка команды на микроконтроллер
-    void sendCommand(const commands::CommandPacket& command);
-
+    ExecutionState getCurrentState() const { return m_state.load(); }
 private:
+    // Структура сегмента движения
+    struct MovementSegment {
+        uint8_t segmentId;          // Уникальный ID сегмента (1-255)
+        commands::MotionType type;  // STRAIGHT или ROTATE
+        int16_t targetValue;        // мм для движения, градусы*10 для поворота
+    };
 
-    static bool verifyChecksum(const commands::CommandPacket& packet);
+    // Разбивка пути на сегменты
+    std::vector<MovementSegment> buildSegments(const std::vector<mathLib::Vec2>& waypoints); 
 
-    // Проверяет, достигнута ли текущая waypoint
-    //  waypoint Позиция waypoint'а
-    //  tolerance Допустимое отклонение (метры)
-    bool isWaypointReached(const mathLib::Vec2& waypoint, float tolerance) const;
+    // Отправка одного сегмента на Arduino
+    void sendSegment(const MovementSegment& segment); 
 
-    // Заполняет буфер Arduino новыми waypoint'ами (конвейер)
-    void refillWaypointBuffer();
+    // Отправка следующего сегмента
+    void sendNextSegment(); 
 
-    // Вычисляет ориентацию (theta) по направлению к следующей точке
-    float calculateTargetOrientation(size_t waypointIndex) const;
+    // Обработка подтверждения сегмента
+    void handleSegmentAcknowledgment(uint8_t segmentId, bool success);
 
-    // Проверяет, нужно ли переключаться в Velocity Mode
-    void checkModeTransition();
+    // Отправка команды остановки
+    void sendStopCommand();
 
-    // Повторная отправка команды (заглушка)
-    void resendCommand(uint8_t cmdId) {}
+    // Отправка команды экстренной остановки
+    void sendEmergencyStopCommand();
+
+    // Вспомогательные методы
+    float calculateAngleBetween(const mathLib::Vec2& from, const mathLib::Vec2& to) const;
+    float normalizeAngle(float angle) const;
 
     // Константы
-    static constexpr size_t ARDUINO_WAYPOINT_BUFFER_SIZE = 3; // Максимум 3 точки в буфере
-    static constexpr float VELOCITY_MODE_DISTANCE_THRESHOLD = 1.5f; // метров
-    static constexpr float DEFAULT_WAYPOINT_TOLERANCE = 0.01f; // 1 см
-    static constexpr float FINAL_WAYPOINT_TOLERANCE = 0.02f; // 2 см
+    static constexpr float ANGLE_TOLERANCE = 5.0f;    // 5 градусов
+    static constexpr float DISTANCE_TOLERANCE = 0.05f; // 5 см
 
-    // Ссылки на внешние компоненты
     Robot& m_robot;
     UartDriver& m_uartDriver;
 
-    std::chrono::steady_clock::time_point m_lastHeartbeat;
+    // Состояние
+    std::atomic<ExecutionState> m_state{ ExecutionState::IDLE };
+    std::atomic<bool> m_isActive{ false };
 
-    // Внутреннее состояние
-    std::atomic<ExecutionMode> m_currentMode{ ExecutionMode::IDLE };
-    std::atomic<bool> m_isMissionActive{ false };
+    // Сегменты
+    std::vector<MovementSegment> m_segments;
+    std::atomic<size_t> m_nextSegmentIndex{ 0 };
+    std::atomic<uint8_t> m_currentSegmentId{ 1 }; // Начинаем с 1
 
-    // Весь спланированный путь
-    std::vector<mathLib::Vec2> m_plannedPath;
-    std::atomic<size_t> m_nextWaypointIndex{ 0 }; // Следующая точка для отправки в Arduino
+    std::atomic<bool> m_waitingForAck{ false };
+    std::atomic<uint8_t> m_currentSegmentWaiting{ 0 }; // ID текущего сегмента в ожидании
 
-    // Буфер waypoint'ов для Arduino (FIFO очередь)
-    mutable std::mutex m_waypointBufferMutex;
-    std::queue<mathLib::Vec2> m_waypointBuffer;
-
-    // Цель для Velocity Mode
-    mathLib::Vec2 m_velocityTarget;
-    std::atomic<float> m_distanceToGoal{ 0.0f };
-
-    // Поток для чтения UART
-    std::optional<std::jthread> m_uartReadingThread;
+    // Поток UART
+    std::optional<std::jthread> m_uartThread;
 };

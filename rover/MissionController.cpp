@@ -1,336 +1,338 @@
-// MissionController.cpp
+п»ї// MissionController.cpp
 #include "MissionController.h"
 #include "Logger.h"
 #include <cmath>
-#include <algorithm>
+#include <thread>
+#include <chrono>
+#include <cstring> // РґР»СЏ memset
 
 MissionController::MissionController(Robot& robot, UartDriver& uartDriver)
-    : m_robot(robot), m_uartDriver(uartDriver)
+    : m_robot(robot), m_uartDriver(uartDriver) 
 {
-    // Настраиваем callback для приёма пакетов от Arduino
     m_uartDriver.setPacketCallback([this](const uint8_t* data, size_t size) 
         {
-        if (size != sizeof(commands::CommandPacket)) 
-        {
-            log(LogLevel::Warn, "UART: Invalid packet size: " + std::to_string(size));
-            return;
-        }
-
-        commands::CommandPacket packet;
-        std::memcpy(&packet, data, sizeof(packet));
-
-        // Проверка контрольной суммы
-        const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&packet);
-        uint8_t calculated = 0;
-        for (size_t i = 0; i < sizeof(commands::CommandPacket) - 1; i++) 
-        {
-            calculated ^= bytes[i];
-        }
-
-        if (calculated != packet.checksum) 
-        {
-            log(LogLevel::Error, "UART: Checksum error on packet ID " +
-                std::to_string(packet.cmdId));
-            return;
-        }
-
-        // Обрабатываем пакет
-        handleIncomingPacket(packet);
+        handleIncomingPacket(data, size);
         });
 
-    // Запускаем поток чтения UART
-    m_uartReadingThread.emplace([this](std::stop_token token) {
+    m_uartThread.emplace([this](std::stop_token token) 
+        {
         while (!token.stop_requested()) {
             m_uartDriver.processIncomingData();
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         });
 }
 
-MissionController::~MissionController()
+MissionController::~MissionController() 
 {
-    // Останавка миссии
-    stopMission();
-
-    // Останавка потока чтения
-    if (m_uartReadingThread.has_value()) {
-        m_uartReadingThread->request_stop();
-        if (m_uartReadingThread->joinable()) {
-            m_uartReadingThread->join();
-        }
-    }
-}
-
-void MissionController::sendCommand(const commands::CommandPacket& command) {
-    // Создаём копию для расчёта контрольной суммы
-    commands::CommandPacket cmd = command;
-
-    // Расчёт контрольной суммы (XOR всех байт кроме checksum)
-    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&cmd);
-    uint8_t checksum = 0;
-    for (size_t i = 0; i < sizeof(commands::CommandPacket) - 1; ++i) {
-        checksum ^= bytes[i];
-    }
-    cmd.checksum = checksum;
-
-    // Отправка БИНАРНЫХ данных
-    if (!m_uartDriver.sendRaw(
-        reinterpret_cast<const uint8_t*>(&cmd),
-        sizeof(cmd)
-    )) {
-        log(LogLevel::Error, "MissionController: UART send failed for command ID " +
-            std::to_string(command.cmdId));
-    }
-}
-
-
-void MissionController::startMission(const std::vector<mathLib::Vec2>& waypoints)
-{
-    if (waypoints.empty())
+    if (m_uartThread.has_value() && m_uartThread->joinable()) 
     {
-        log(LogLevel::Warn, "MissionController: cannot start mission with empty waypoints");
+        m_uartThread->request_stop();
+        m_uartThread->join();
+    }
+}
+
+void MissionController::startMission(const std::vector<mathLib::Vec2>& waypoints) 
+{
+    if (waypoints.empty()) 
+    {
+        log(LogLevel::Error, "MissionController: Cannot start mission with empty waypoints");
         return;
     }
 
-    // Останавливаем предыдущую миссию если есть
-    stopMission();
+    stopMission(); // РћСЃС‚Р°РЅР°РІР»РёРІР°РµРј РїСЂРµРґС‹РґСѓС‰СѓСЋ РјРёСЃСЃРёСЋ
 
-    // Сохраняем путь
-    m_plannedPath = waypoints;
-    m_nextWaypointIndex = 0;
-    m_isMissionActive = true;
-    m_currentMode = ExecutionMode::WAYPOINT;
-
-    // Очищаем буфер
+    // Р Р°Р·Р±РёРІР°РµРј РїСѓС‚СЊ РЅР° СЃРµРіРјРµРЅС‚С‹
+    m_segments = buildSegments(waypoints);
+    if (m_segments.empty()) 
     {
-        std::lock_guard<std::mutex> lock(m_waypointBufferMutex);
-        while (!m_waypointBuffer.empty()) m_waypointBuffer.pop();
+        log(LogLevel::Error, "MissionController: Failed to build segments from waypoints");
+        return;
     }
 
-    // Заполняем первые точки
-    refillWaypointBuffer();
+    log(LogLevel::Info, "MissionController: Built " + std::to_string(m_segments.size()) +
+        " segments from " + std::to_string(waypoints.size()) + " waypoints");
 
-    log(LogLevel::Info, "MissionController: mission started with " +
-        std::to_string(waypoints.size()) + " waypoints");
+    // РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ
+    m_nextSegmentIndex = 0;
+    m_currentSegmentId = 1;
+    m_isActive = true;
+    m_state = ExecutionState::EXECUTING;
+    m_waitingForAck = false;
+    m_currentSegmentWaiting = 0;
+
+    // РћС‚РїСЂР°РІР»СЏРµРј РџР•Р Р’Р«Р™ СЃРµРіРјРµРЅС‚
+    sendNextSegment();
+
+    log(LogLevel::Info, "MissionController: Mission started");
 }
 
-void MissionController::stopMission()
+void MissionController::stopMission() 
 {
-    if (!m_isMissionActive) return;
+    if (!m_isActive) return;
 
-    m_isMissionActive = false;
-    m_currentMode = ExecutionMode::IDLE;
+    log(LogLevel::Info, "MissionController: Stopping mission");
+    sendStopCommand();
 
-    // Отправляем команду остановки
-    commands::CommandPacket stopCommand;
-    stopCommand.type = commands::CmdType::STOP;
-    stopCommand.cmdId = 0; // Emergency ID
-    sendCommand(stopCommand);
+    m_isActive = false;
+    m_state = ExecutionState::IDLE;
+    m_segments.clear();
+    m_nextSegmentIndex = 0;
+    m_waitingForAck = false;
+    m_currentSegmentWaiting = 0;
+}
 
-    // Очищаем путь и буфер
+void MissionController::emergencyStop() 
+{
+    log(LogLevel::Error, "MissionController: EMERGENCY STOP activated");
+    sendEmergencyStopCommand();
+
+    m_isActive = false;
+    m_state = ExecutionState::EMERGENCY_STOP;
+    m_segments.clear();
+    m_nextSegmentIndex = 0;
+    m_waitingForAck = false;
+    m_currentSegmentWaiting = 0;
+}
+
+void MissionController::update() 
+{
+    if (!m_isActive || m_state != ExecutionState::EXECUTING) return;
+
+    // РџСЂРѕРІРµСЂСЏРµРј, РЅРµ Р·Р°РІРµСЂС€РёР»Р°СЃСЊ Р»Рё РјРёСЃСЃРёСЏ
+    if (m_nextSegmentIndex >= m_segments.size() && !m_waitingForAck) 
     {
-        std::lock_guard<std::mutex> lock(m_waypointBufferMutex);
-        while (!m_waypointBuffer.empty()) m_waypointBuffer.pop();
+        log(LogLevel::Info, "MissionController: Mission completed successfully");
+        m_isActive = false;
+        m_state = ExecutionState::COMPLETED;
     }
-    m_plannedPath.clear();
-    m_nextWaypointIndex = 0;
-
-    log(LogLevel::Info, "MissionController: mission stopped");
 }
 
-void MissionController::update()
+void MissionController::handleIncomingPacket(const uint8_t* data, size_t size) 
 {
-    if (!m_isMissionActive) return;
-    // Получаем актуальную позицию (атомарно)
+    // Р‘РёРЅР°СЂРЅС‹Р№ РїСЂРѕС‚РѕРєРѕР»: 4 Р±Р°Р№С‚Р° (0xAA, segmentId, status, checksum)
+    if (size != 4) 
+    {
+        log(LogLevel::Warn, "UART: Invalid packet size: " + std::to_string(size) +" (expected 4 bytes)");
+        return;
+    }
+
+    if (data[0] != 0xAA) 
+    {
+        log(LogLevel::Warn, "UART: Invalid start byte: 0x" +std::to_string(static_cast<int>(data[0])));
+        return;
+    }
+
+    // РџСЂРѕРІРµСЂРєР° РєРѕРЅС‚СЂРѕР»СЊРЅРѕР№ СЃСѓРјРјС‹
+    uint8_t calculated = data[0] ^ data[1] ^ data[2];
+    if (calculated != data[3]) 
+    {
+        log(LogLevel::Error, "UART: Checksum error! Calculated: 0x" +
+            std::to_string(calculated) + ", Received: 0x" +
+            std::to_string(static_cast<int>(data[3])));
+        return;
+    }
+
+    uint8_t segmentId = data[1];
+    bool success = (data[2] == 0x01);
+
+    log(LogLevel::Info, "Arduino: Segment " + std::to_string(segmentId) +
+        (success ? " completed successfully" : " failed"));
+
+    handleSegmentAcknowledgment(segmentId, success);
+}
+
+void MissionController::handleSegmentAcknowledgment(uint8_t segmentId, bool success) 
+{
+    if (!m_isActive) return;
+
+    // РџСЂРѕРІРµСЂСЏРµРј, С‡С‚Рѕ СЌС‚Рѕ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ РґР»СЏ С‚РµРєСѓС‰РµРіРѕ СЃРµРіРјРµРЅС‚Р°
+    if (!m_waitingForAck) 
+    {
+        log(LogLevel::Warn, "Unexpected acknowledgment for segment " +
+            std::to_string(segmentId) + " (not waiting for ACK)");
+        return;
+    }
+
+    if (segmentId != m_currentSegmentWaiting) 
+    {
+        log(LogLevel::Error, "Segment ID mismatch: expected " +
+            std::to_string(m_currentSegmentWaiting) + ", got " +
+            std::to_string(segmentId));
+        emergencyStop();
+        return;
+    }
+
+    m_waitingForAck = false;
+    m_currentSegmentWaiting = 0;
+
+    if (success) 
+    {
+        // РћС‚РїСЂР°РІР»СЏРµРј СЃР»РµРґСѓСЋС‰РёР№ СЃРµРіРјРµРЅС‚ (РµСЃР»Рё РµСЃС‚СЊ)
+        sendNextSegment();
+    }
+    else 
+    {
+        log(LogLevel::Error, "Segment " + std::to_string(segmentId) + " failed");
+        emergencyStop();
+    }
+}
+
+std::vector<MissionController::MovementSegment> MissionController::buildSegments(const std::vector<mathLib::Vec2>& waypoints) 
+{
+    std::vector<MovementSegment> segments;
+    if (waypoints.size() < 2) return segments;
+
     auto currentPose = m_robot.getPose();
+    mathLib::Vec2 currentPosition = currentPose.position;
+    float currentAngle = currentPose.yaw;
 
-    // Режим WAYPOINT: управляем конвейером
-    if (m_currentMode == ExecutionMode::WAYPOINT)
+    uint8_t segmentId = 1;
+
+    for (size_t i = 0; i < waypoints.size(); ++i) 
     {
-        checkModeTransition(); // Проверяем, не пора ли в Velocity Mode
+        const auto& target = waypoints[i];
 
-        // Проверяем достижение текущей waypoint
-        mathLib::Vec2 currentWaypoint;
+        // 1. Р’С‹С‡РёСЃР»РµРЅРёРµ СѓРіР»Р° Рє С†РµР»Рё
+        float targetAngle = calculateAngleBetween(currentPosition, target);
+        float angleDiff = normalizeAngle(targetAngle - currentAngle);
+
+        // 2. Р•СЃР»Рё РЅСѓР¶РЅРѕ РїРѕРІРµСЂРЅСѓС‚СЊ (Р±РѕР»РµРµ 5 РіСЂР°РґСѓСЃРѕРІ)
+        if (std::abs(angleDiff) > ANGLE_TOLERANCE) 
         {
-            std::lock_guard<std::mutex> lock(m_waypointBufferMutex);
-            if (!m_waypointBuffer.empty())
-            {
-                currentWaypoint = m_waypointBuffer.front();
-            }
-            else
-            {
-                return; // Буфер пуст, ждём пополнения
-            }
+            int16_t angleValue = static_cast<int16_t>(angleDiff * 10.0f);
+            segments.push_back({ segmentId++, commands::MotionType::ROTATE, angleValue });
+            currentAngle = targetAngle;
         }
 
-        // Если waypoint достигнут
-        float tolerance = (m_nextWaypointIndex == m_plannedPath.size()) ? FINAL_WAYPOINT_TOLERANCE : DEFAULT_WAYPOINT_TOLERANCE;
-
-        if (isWaypointReached(currentWaypoint, tolerance))
+        // 3. Р”РІРёР¶РµРЅРёРµ Рє С‚РѕС‡РєРµ (РµСЃР»Рё СЂР°СЃСЃС‚РѕСЏРЅРёРµ > 5 СЃРј)
+        float distance = std::hypot(target.x - currentPosition.x, target.y - currentPosition.y);
+        if (distance > DISTANCE_TOLERANCE) 
         {
-            log(LogLevel::Debug, "MissionController: waypoint reached, index=" +
-                std::to_string(m_nextWaypointIndex - m_waypointBuffer.size()));
-
-            // Удаляем из буфера
-            {
-                std::lock_guard<std::mutex> lock(m_waypointBufferMutex);
-                m_waypointBuffer.pop();
-            }
-
-            // Заполняем новыми точками
-            refillWaypointBuffer();
+            int16_t distanceMm = static_cast<int16_t>(distance * 1000.0f);
+            segments.push_back({ segmentId++, commands::MotionType::STRAIGHT, distanceMm });
+            currentPosition = target;
         }
-    }
-    // Режим VELOCITY: Pi управляет напрямую
-    else if (m_currentMode == ExecutionMode::VELOCITY)
-    {
-        // Здесь будет логика Visual Servoing
-        // Пока просто логируем
-        float distance = std::hypot(
-            m_velocityTarget.x - currentPose.position.x,
-            m_velocityTarget.y - currentPose.position.y
-        );
-        m_distanceToGoal = distance;
-
-        log(LogLevel::Debug, "MissionController: velocity mode, distance to goal=" +
-            std::to_string(distance));
-    }
-}
-
-void MissionController::refillWaypointBuffer()
-{
-    std::lock_guard<std::mutex> lock(m_waypointBufferMutex);
-
-    // Пока буфер не полон и есть точки в пути
-    while (m_waypointBuffer.size() < ARDUINO_WAYPOINT_BUFFER_SIZE &&
-           m_nextWaypointIndex < m_plannedPath.size())
-    {
-
-        const auto& waypoint = m_plannedPath[m_nextWaypointIndex];
-        m_waypointBuffer.push(waypoint);
-
-        // Формирование команды
-        commands::CommandPacket command;
-        command.startByte = 0xAA;
-        command.type = commands::CmdType::GOTO;
-        command.cmdId = static_cast<uint8_t>(m_nextWaypointIndex + 1);
-        command.waypointId = static_cast<uint8_t>(m_nextWaypointIndex + 1);
-        command.goto_data.x = waypoint.x;
-        command.goto_data.y = waypoint.y;
-        command.goto_data.theta = calculateTargetOrientation(m_nextWaypointIndex);
-        command.goto_data.linearSpeed = 0.3f;
-        command.goto_data.angularSpeed = 0.5f;
-        command.goto_data.tolerance = (m_nextWaypointIndex + 1 == m_plannedPath.size()) ?
-            FINAL_WAYPOINT_TOLERANCE : DEFAULT_WAYPOINT_TOLERANCE;
-
-        sendCommand(command);
-
-        log(LogLevel::Info, "MissionController: sent waypoint " +
-            std::to_string(m_nextWaypointIndex + 1) +
-            " (" + std::to_string(waypoint.x) + ", " + std::to_string(waypoint.y) + ")");
-
-        ++m_nextWaypointIndex;
-    }
-}
-
-float MissionController::calculateTargetOrientation(size_t waypointIndex) const
-{
-    if (waypointIndex + 1 >= m_plannedPath.size())
-    {
-        return 0.0f; // Финальная точка: ориентация не важна
-    }
-
-    // Смотрим на следующую точку
-    const auto& current = m_plannedPath[waypointIndex];
-    const auto& next = m_plannedPath[waypointIndex + 1];
-
-    return std::atan2(next.y - current.y, next.x - current.x);
-}
-
-void MissionController::checkModeTransition()
-{
-    // Вычисляем расстояние до финальной цели
-    auto currentPose = m_robot.getPose();
-    const auto& finalGoal = m_plannedPath.back();
-
-    float distanceToGoal = std::hypot(
-        finalGoal.x - currentPose.position.x,
-        finalGoal.y - currentPose.position.y
-    );
-    m_distanceToGoal = distanceToGoal;
-
-    // Если близко — переключаемся
-    if (distanceToGoal < VELOCITY_MODE_DISTANCE_THRESHOLD)
-    {
-        enableVelocityMode(finalGoal);
-    }
-}
-
-void MissionController::enableVelocityMode(const mathLib::Vec2& targetPosition)
-{
-    if (m_currentMode == ExecutionMode::VELOCITY) return;
-
-    m_velocityTarget = targetPosition;
-    m_currentMode = ExecutionMode::VELOCITY;
-
-    // Останавливаемся перед переключением
-    commands::CommandPacket stopCommand;
-    stopCommand.type = commands::CmdType::STOP;
-    stopCommand.cmdId = 255; // Специальный ID для остановки
-    sendCommand(stopCommand);
-
-    log(LogLevel::Info, "MissionController: switched to VELOCITY mode, target=" +
-        std::to_string(targetPosition.x) + ", " + std::to_string(targetPosition.y));
-}
-
-bool MissionController::isWaypointReached(const mathLib::Vec2& waypoint, float tolerance) const
-{
-    auto currentPose = m_robot.getPose();
-    float deltaX = waypoint.x - currentPose.position.x;
-    float deltaY = waypoint.y - currentPose.position.y;
-    return std::hypot(deltaX, deltaY) < tolerance;
-}
-
-void MissionController::handleIncomingPacket(const commands::CommandPacket& packet) {
-    switch (packet.type) {
-    case commands::CmdType::REACHED:
-        log(LogLevel::Info, "ESP32: Waypoint " +
-            std::to_string(packet.waypointId) + " reached");
-
-        // Удаляем из буфера только подтверждённые точки
+        else 
         {
-            std::lock_guard lock(m_waypointBufferMutex);
-            if (!m_waypointBuffer.empty()) {
-                m_waypointBuffer.pop();
-            }
+            currentPosition = target;
         }
-        refillWaypointBuffer(); // Отправляем следующую точку
-        break;
+    }
 
-    case commands::CmdType::ACK:
-        if (packet.ack_data == 1) {
-            log(LogLevel::Debug, "ESP32: Command " +
-                std::to_string(packet.cmdId) + " acknowledged");
-        }
-        else {
-            log(LogLevel::Warn, "ESP32: Command " +
-                std::to_string(packet.cmdId) + " rejected");
-            // Повторная отправка (заглушка)
-            // resendCommand(packet.cmdId);
-        }
-        break;
+    // Р¤РёРЅР°Р»СЊРЅС‹Р№ РїРѕРІРѕСЂРѕС‚ Рє РЅР°РїСЂР°РІР»РµРЅРёСЋ РїРѕСЃР»РµРґРЅРµР№ С‚РѕС‡РєРё
+    if (!waypoints.empty() && waypoints.size() > 1) 
+    {
+        const auto& lastPoint = waypoints.back();
+        const auto& prevPoint = waypoints[waypoints.size() - 2];
+        float finalAngle = calculateAngleBetween(prevPoint, lastPoint);
+        float angleDiff = normalizeAngle(finalAngle - currentAngle);
 
-    default:
-        log(LogLevel::Warn, "Unexpected packet type: " +
-            std::to_string(static_cast<int>(packet.type)));
+        if (std::abs(angleDiff) > ANGLE_TOLERANCE) 
+        {
+            int16_t angleValue = static_cast<int16_t>(angleDiff * 10.0f);
+            segments.push_back({ segmentId++, commands::MotionType::ROTATE, angleValue });
+        }
+    }
+
+    return segments;
+}
+
+void MissionController::sendSegment(const MovementSegment& segment) 
+{
+    commands::MoveCommand cmd;
+    memset(&cmd, 0, sizeof(cmd));
+
+    cmd.header.startByte = 0xAA;
+    cmd.header.commandType = commands::CommandType::MOVE;
+    cmd.header.packetId = segment.segmentId;
+    cmd.segmentId = segment.segmentId;
+    cmd.motionType = segment.type;
+    cmd.targetValue = segment.targetValue;
+
+    // Р Р°СЃС‡С‘С‚ РєРѕРЅС‚СЂРѕР»СЊРЅРѕР№ СЃСѓРјРјС‹
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&cmd);
+    cmd.checksum = 0;
+    for (size_t i = 0; i < sizeof(commands::MoveCommand) - 1; i++) 
+    {
+        cmd.checksum ^= bytes[i];
+    }
+
+    if (!m_uartDriver.sendRaw(reinterpret_cast<const uint8_t*>(&cmd), sizeof(cmd))) 
+    {
+        log(LogLevel::Error, "UART: Failed to send segment " + std::to_string(segment.segmentId));
     }
 }
 
-bool MissionController::verifyChecksum(const commands::CommandPacket& packet) {
-    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&packet);
-    uint8_t calculated = 0;
-    for (size_t i = 0; i < sizeof(commands::CommandPacket) - 1; i++) {
-        calculated ^= bytes[i];
+void MissionController::sendNextSegment() 
+{
+    if (!m_isActive || m_state != ExecutionState::EXECUTING) return;
+    if (m_waitingForAck) return; // Р–РґС‘Рј РїРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ РїСЂРµРґС‹РґСѓС‰РµРіРѕ СЃРµРіРјРµРЅС‚Р°
+
+    if (m_nextSegmentIndex >= m_segments.size()) 
+    {
+        log(LogLevel::Debug, "No more segments to send");
+        return;
     }
-    return calculated == packet.checksum;
+
+    const auto& segment = m_segments[m_nextSegmentIndex];
+    sendSegment(segment);
+
+    // РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј С„Р»Р°Рі РѕР¶РёРґР°РЅРёСЏ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ
+    m_waitingForAck = true;
+    m_currentSegmentWaiting = segment.segmentId;
+    m_nextSegmentIndex++;
+
+    log(LogLevel::Info, "Sent segment " + std::to_string(segment.segmentId) +
+        " (type=" + (segment.type == commands::MotionType::STRAIGHT ? "STRAIGHT" : "ROTATE") +
+        ", value=" + std::to_string(segment.targetValue) + ")");
+}
+
+void MissionController::sendStopCommand() 
+{
+    struct 
+    {
+        uint8_t startByte;
+        commands::CommandType commandType;
+        uint8_t packetId;
+        uint8_t checksum;
+    } cmd;
+
+    cmd.startByte = 0xAA;
+    cmd.commandType = commands::CommandType::STOP;
+    cmd.packetId = 0; // РЎРёСЃС‚РµРјРЅР°СЏ РєРѕРјР°РЅРґР°
+
+    cmd.checksum = cmd.startByte ^ static_cast<uint8_t>(cmd.commandType) ^ cmd.packetId;
+
+    m_uartDriver.sendRaw(reinterpret_cast<const uint8_t*>(&cmd), sizeof(cmd));
+}
+
+void MissionController::sendEmergencyStopCommand() 
+{
+    struct 
+    {
+        uint8_t startByte;
+        commands::CommandType commandType;
+        uint8_t packetId;
+        uint8_t checksum;
+    } cmd;
+
+    cmd.startByte = 0xAA;
+    cmd.commandType = commands::CommandType::EMERGENCY_STOP;
+    cmd.packetId = 0xFF; // РЎРїРµС†РёР°Р»СЊРЅС‹Р№ ID
+
+    cmd.checksum = cmd.startByte ^ static_cast<uint8_t>(cmd.commandType) ^ cmd.packetId;
+
+    m_uartDriver.sendRaw(reinterpret_cast<const uint8_t*>(&cmd), sizeof(cmd));
+}
+
+float MissionController::calculateAngleBetween(const mathLib::Vec2& from, const mathLib::Vec2& to) const 
+{
+    return std::atan2(to.y - from.y, to.x - from.x);
+}
+
+float MissionController::normalizeAngle(float angle) const 
+{
+    while (angle > M_PI) angle -= 2.0f * M_PI;
+    while (angle < -M_PI) angle += 2.0f * M_PI;
+    return angle;
 }

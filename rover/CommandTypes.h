@@ -4,35 +4,40 @@
 
 #pragma pack(push, 1)
 namespace commands {
-    enum class CmdType : uint8_t {
-        GOTO = 0x01,
-        REACHED = 0x02,
-        ACK = 0x03,
-        NACK = 0x04,
-        STOP = 0x05,
-        HEARTBEAT = 0x06
+    enum class CommandType : uint8_t
+    {
+        MOVE = 0x02,
+        STOP = 0x03,
+        EMERGENCY_STOP = 0x04,
+        GET_STATUS = 0x05
     };
 
-    struct GotoData {
-        float x;
-        float y;
-        float theta;
-        float linearSpeed;
-        float angularSpeed;
-        float tolerance;
+    // Типы движения
+    enum MotionType : uint8_t
+    {
+        STRAIGHT = 0x01, //движение по прямой
+        ROTATE = 0x02    // поворот на месте
     };
 
-    struct CommandPacket {
-        uint8_t startByte = 0xAA; // Стартовый байт
-        CmdType type;
-        uint8_t cmdId;
-        uint8_t waypointId;
-        union {
-            GotoData goto_data;
-            uint8_t ack_data; // 0 = NACK, 1 = ACK
-        };
+    // Базовая структура для всех команд
+    struct CommandHeader
+    {
+        uint8_t startByte;    // 0xAA - маркер начала
+        CommandType commandType;
+        uint8_t packetId;     // ID пакета для подтверждения
+    };
+
+    // Команда движения (объединённая для движения и поворотов)
+    struct MoveCommand
+    {
+        CommandHeader header;
+        uint8_t segmentId;     // Уникальный ID сегмента (1-255) (для сопоставления с телеметрией)
+        MotionType motionType;
+        int16_t targetValue;   // Целевое значение: для движения - мм, для поворота - градусы*10
         uint8_t checksum;
     };
+
+    using CommandPacket = MoveCommand;
 }
 #pragma pack(pop)
 
@@ -56,7 +61,7 @@ namespace commands {
 //    };
 //
 //    // Пакет команды (максимум 32 байта для UART)
-//    struct CommandPacket
+//    struct commands::CommandPacket
 //    {
 //        CmdType type;
 //        uint8_t cmdId;           // ID для отслеживания
@@ -86,7 +91,7 @@ namespace commands {
 //    };
 //
 //    // Размер должен быть 1+1+1+4*6+1 = 28 байт
-//    static_assert(sizeof(CommandPacket) <= 32, "Packet too large!");
+//    static_assert(sizeof(commands::CommandPacket) <= 32, "Packet too large!");
 //
 //} // namespace commands
 //

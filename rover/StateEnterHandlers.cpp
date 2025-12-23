@@ -6,6 +6,7 @@
 #include "PathPlanner.h"
 #include "MissionController.h"
 #include "Robot.h"
+#include <NetworkCommand.h>
 
 StateEnterHandlers::StateEnterHandlers(Robot& robot, EventQueue& eventQueue, MissionController& missionController)
     : m_robot(robot), m_eventQueue(eventQueue), m_missionController(missionController)
@@ -67,8 +68,12 @@ void StateEnterHandlers::onEnterPlanning() const
     }
     params.goalInMeters = target->position;
 
+    // Сохраняем позицию цели для отправки в поток
+    mathLib::Vec2 goalPosition = target->position;
+    mathLib::Vec2 startPosition = params.startInMeters;
+
     // Запускаем планировщик в фоне
-    std::thread([this, params]()
+    std::thread([this, params, startPosition, goalPosition]()
                 {
                     try
                     {
@@ -78,7 +83,22 @@ void StateEnterHandlers::onEnterPlanning() const
 
                         if (result.succeeded && !result.pathInMeters.empty())
                         {
-                            auto keypoints = planner.extractKeypoints(result.pathInMeters);
+                            auto keypoints = planner.extractKeypoints(result.pathInMeters, 15.0f, 0.1f);
+
+                            // Формируем данные для отправки на GUI
+                            std::vector<RoutePoint> guiPoints;
+                            for (const auto& wp : keypoints) {
+                                guiPoints.push_back({ wp.x, wp.y });
+                            }
+
+                            // Отправляем маршрут на интерфейс
+                            sendRouteToGUI(
+                                guiPoints,
+                                startPosition,
+                                goalPosition,
+                                "mission_" + std::to_string(std::time(nullptr))
+                            );
+
                             m_missionController.startMission(keypoints);
                             m_eventQueue.push(Event::pathPlanned(result.pathInMeters));
                         }

@@ -23,7 +23,7 @@ using json = nlohmann::json;
 
 static std::thread g_listenerThread;
 static std::atomic<bool> g_stopListener{ false };
-static constexpr int COMMAND_PORT = 5005;
+static constexpr int COMMAND_PORT = 5006;
 
 // RAII-обёртка для сокета (автоматическое закрытие)
 class SocketGuard
@@ -59,7 +59,7 @@ void handleJsonCommand(Robot& rover, EventQueue& events, const json& cmd)
         float x = cmd["x"].get<float>();
         float y = cmd["y"].get<float>();
         rover.initialPosition = { x, y };
-        rover.setPose(mathLib::Vec2::Vec2(x,y), 0);
+        rover.setPose(mathLib::Vec2(x, y), 0);
         log(LogLevel::Info, "Initial pose set to (" + std::to_string(x) + ", " + std::to_string(y) + ")");
     }
     else if (command == "plan_path")
@@ -157,6 +157,74 @@ void udpListenerLoop(Robot& rover, EventQueue& events)
             }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
+
+void sendRouteToGUI(const std::vector<RoutePoint>& keypoints, const mathLib::Vec2& start, const mathLib::Vec2& goal, const std::string& routeId)
+{
+    try 
+    {
+        // Формируем JSON сообщение
+        json routeData;
+        routeData["type"] = "route_update";
+        routeData["route_id"] = routeId.empty() ? "route_" + std::to_string(std::time(nullptr)) : routeId;
+        routeData["timestamp"] = std::time(nullptr);
+
+        // Начальная и конечная точки
+        routeData["start"] = { {"x", start.x}, {"y", start.y} };
+        routeData["goal"] = { {"x", goal.x}, {"y", goal.y} };
+
+        // Ключевые точки
+        json keypointsJson = json::array();
+        for (const auto& point : keypoints) 
+        {
+            keypointsJson.push_back({ {"x", point.x}, {"y", point.y} });
+        }
+        routeData["keypoints"] = keypointsJson;
+
+        // Конвертируем в строку
+        std::string jsonData = routeData.dump();
+
+        // Создаём сокет для отправки
+        int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (sockfd < 0) 
+        {
+            log(LogLevel::Error, "GUI: Failed to create UDP socket for route sending");
+            return;
+        }
+
+        sockaddr_in guiAddr{};
+        guiAddr.sin_family = AF_INET;
+        guiAddr.sin_port = htons(GUI_PORT);
+        inet_pton(AF_INET, GUI_IP, &guiAddr.sin_addr);
+
+        // Отправляем данные
+        ssize_t sent = sendto
+        (
+            sockfd,
+            jsonData.c_str(),
+            jsonData.size(),
+            0,
+            (sockaddr*)&guiAddr,
+            sizeof(guiAddr)
+        );
+
+        if (sent < 0) 
+        {
+            log(LogLevel::Error, "GUI: Failed to send route data");
+        }
+        else 
+        {
+            log(LogLevel::Info, "GUI: Route sent successfully (" +
+                std::to_string(keypoints.size()) + " keypoints)");
+            log(LogLevel::Debug, "Route data: " + jsonData);
+        }
+
+        close(sockfd);
+    }
+    catch (const std::exception& e) 
+    {
+        log(LogLevel::Error, "GUI: Error sending route: " + std::string(e.what()));
     }
 }
 

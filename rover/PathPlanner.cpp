@@ -258,40 +258,47 @@ namespace pathplanner
         return PathResult::failure();
     }
 
-    std::vector<mathLib::Vec2> PathPlanner::extractKeypoints(const std::vector<mathLib::Vec2>& rawPath, float /*minAngleDeg*/, float maxDistance) const
+    std::vector<mathLib::Vec2> PathPlanner::extractKeypoints(const std::vector<mathLib::Vec2>& rawPath, float minAngleDeg, float maxDistance) const
     {
-        if (rawPath.size() < 3) return rawPath;
+        if (rawPath.size() < 2) return rawPath;
 
-        std::vector<mathLib::Vec2> filtered;
-        filtered.reserve(rawPath.size());
+        std::vector<mathLib::Vec2> keypoints;
+        keypoints.reserve(rawPath.size());
+        keypoints.push_back(rawPath.front());
 
-        const float minSegmentLength = maxDistance; // используем maxDistance как порог (в метрах)
+        const float minAngleRad = minAngleDeg * (M_PI / 180.0f);
+        const float maxDistanceSquared = maxDistance * maxDistance;
 
-        // Всегда сохраняем старт
-        filtered.push_back(rawPath.front());
+        for (size_t i = 1; i < rawPath.size() - 1; ++i) {
+            const auto& prev = rawPath[i - 1];
+            const auto& curr = rawPath[i];
+            const auto& next = rawPath[i + 1];
 
-        for (size_t i = 1; i < rawPath.size() - 1; ++i)
-        {
-            const auto& candidate = rawPath[i];
-            const auto& lastKept = filtered.back();
+            // Проверка расстояния до последней ключевой точки
+            float distToLast = std::pow(curr.x - keypoints.back().x, 2) +
+                std::pow(curr.y - keypoints.back().y, 2);
 
-            float dist = std::hypot(candidate.x - lastKept.x, candidate.y - lastKept.y);
-            if (dist >= minSegmentLength)
+            if (distToLast < maxDistanceSquared) continue;
+
+            // Проверка угла поворота
+            mathLib::Vec2 vec1 = { prev.x - curr.x, prev.y - curr.y };
+            mathLib::Vec2 vec2 = { next.x - curr.x, next.y - curr.y };
+
+            float dot = vec1.x * vec2.x + vec1.y * vec2.y;
+            float det = vec1.x * vec2.y - vec1.y * vec2.x;
+            float angle = std::abs(std::atan2(det, dot));
+
+            if (angle > minAngleRad) 
             {
-                filtered.push_back(candidate);
-            }
-            else
-            {
-                // отбрасываем слишком близкую точку
+                keypoints.push_back(curr);
             }
         }
 
-        filtered.push_back(rawPath.back());
+        keypoints.push_back(rawPath.back());
 
-        log(LogLevel::Info, "Filtered path from " +
-            std::to_string(rawPath.size()) + " to " +
-            std::to_string(filtered.size()) + " points (minSeg=" + std::to_string(minSegmentLength) + "m)");
-        return filtered;
+        log(LogLevel::Info, "Extracted " + std::to_string(keypoints.size()) + " keypoints from path of " + std::to_string(rawPath.size()) + " points");
+
+        return keypoints;
     }
 
 } // namespace pathplanner

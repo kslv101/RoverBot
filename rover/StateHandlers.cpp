@@ -192,14 +192,14 @@ State StateHandlers::handleExecutingPath() const
         missionController.stopMission();
         return State::Idle;
 
-    case EventType::TargetInView:
+    /*case EventType::TargetInView:
         if (auto target = robot.getTarget())
         {
             missionController.enableVelocityMode(target->position);
         }
 
         log(LogLevel::Info, "Target in view. Switching to docking.");
-        return State::Docking;
+        return State::Docking;*/
 
     case EventType::DestinationReached:
         log(LogLevel::Info, "Destination reached. Mission complete.");

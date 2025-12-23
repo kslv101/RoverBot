@@ -106,16 +106,10 @@ int main()
 {
     Robot robot;
     EventQueue eventQueue;
-    //UartDriver uartDriver("/dev/ttyUSB0", 115200);
-    UartDriver uartDriver("COM10", 115200);
-    if (!uartDriver.connect()) {
-        log(LogLevel::Error, "Failed to connect to ESP32 via UART!");
-        log(LogLevel::Error, "Check if device is connected and permissions are set.");
-        return -1;
-    }
-    log(LogLevel::Info, "Successfully connected to ESP32");
+    UartDriver uart("/dev/ttyUSB1", 115200);
+    uart.connect();
 
-    MissionController missionController(robot, uartDriver);
+    MissionController missionController(robot, uart);
     startCommandListener(robot, eventQueue);
 
     robot.mapPath = "maps/warehouse";
@@ -140,7 +134,7 @@ int main()
     }
 
     stateMachine.stop();
-    uartDriver.disconnect();
+    uart.disconnect();
 
     return 0;
 }

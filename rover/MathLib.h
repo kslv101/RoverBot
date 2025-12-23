@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 #include <cstddef> // для std::size_t
+#include <functional>
 
 namespace mathLib
 {

@@ -3,8 +3,6 @@
 #include <functional>
 #include <string>
 #include <atomic>
-#include <vector>
-#include <queue>
 #include "CommandTypes.h"
 
 class UartDriver {
@@ -23,7 +21,9 @@ public:
 private:
     std::string m_port;
     int m_baudRate;
-    void* m_handle; // HANDLE הכÿ Windows
+    int m_fd; // File descriptor הכÿ Linux גלוסעמ HANDLE
     PacketCallback m_callback;
     std::atomic<bool> m_connected;
+
+    bool configurePort();
 };

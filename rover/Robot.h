@@ -6,7 +6,6 @@
 #include <mutex>
 #include <iostream>
 
-#include "Triggers.h"
 #include "Target.h"
 #include "MathLib.h"
 #include "NavigationMap.h"

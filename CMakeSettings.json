@@ -1,0 +1,35 @@
+{
+	"configurations": [
+		{
+			"name": "RaspberryPi-Debug",
+			"generator": "Unix Makefiles",
+			"remoteMachineName": "myraspberry",
+			"remoteCMakeListsRoot": "$HOME/.vs/${projectDirName}/${workspaceHash}/src",
+			"remoteBuildRoot": "$HOME/.vs/${projectDirName}/${workspaceHash}/out/build/${name}",
+			"remoteInstallRoot": "$HOME/.vs/${projectDirName}/${workspaceHash}/out/install/${name}",
+			"remoteCopySources": true,
+			"remoteCopySourcesOutputVerbosity": "Normal",
+			"remoteCopySourcesConcurrentCopies": "10",
+			"cmakeExecutable": "/usr/bin/cmake",
+			"buildRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\build\\${name}",
+			"installRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\install\\${name}",
+			"cmakeCommandArgs": "",
+			"buildCommandArgs": "",
+			"ctestCommandArgs": "",
+			"inheritEnvironments": [ "linux_arm64" ],
+			//"remotePostBuildCommand": "mkdir -p ${remoteBuildRoot}/maps && cp -r ${remoteCMakeListsRoot}/maps/* ${remoteBuildRoot}/maps/",
+			"variables": [
+				{
+					"name": "CMAKE_CXX_COMPILER",
+					"type": "STRING",
+					"value": "/usr/bin/g++"
+				},
+				{
+					"name": "CMAKE_C_COMPILER",
+					"value": "/usr/bin/gcc",
+					"type": "STRING"
+				}
+			]
+		}
+	]
+}

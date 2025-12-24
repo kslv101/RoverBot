@@ -25,7 +25,6 @@ static std::thread g_listenerThread;
 static std::atomic<bool> g_stopListener{ false };
 static constexpr int COMMAND_PORT = 5006;
 
-// RAII-обёртка для сокета (автоматическое закрытие)
 class SocketGuard
 {
 public:
@@ -58,9 +57,10 @@ void handleJsonCommand(Robot& rover, EventQueue& events, const json& cmd)
     {
         float x = cmd["x"].get<float>();
         float y = cmd["y"].get<float>();
+        float yaw = cmd["yaw"].get<float>();
         rover.initialPosition = { x, y };
         rover.setPose(mathLib::Vec2(x, y), 0);
-        log(LogLevel::Info, "Initial pose set to (" + std::to_string(x) + ", " + std::to_string(y) + ")");
+        log(LogLevel::Info, "Initial pose(x, y, yaw) set to (" + std::to_string(x) + ", " + std::to_string(y) + ", " + std::to_string(yaw) + ")");
     }
     else if (command == "plan_path")
     {
@@ -164,9 +164,10 @@ void sendRouteToGUI(const std::vector<RoutePoint>& keypoints, const mathLib::Vec
 {
     try 
     {
-        // Формируем JSON сообщение
+        // Формирование JSON сообщения
         json routeData;
         routeData["type"] = "route_update";
+        routeData["count"] = keypoints.size();
         routeData["route_id"] = routeId.empty() ? "route_" + std::to_string(std::time(nullptr)) : routeId;
         routeData["timestamp"] = std::time(nullptr);
 
@@ -215,8 +216,7 @@ void sendRouteToGUI(const std::vector<RoutePoint>& keypoints, const mathLib::Vec
         }
         else 
         {
-            log(LogLevel::Info, "GUI: Route sent successfully (" +
-                std::to_string(keypoints.size()) + " keypoints)");
+            log(LogLevel::Info, "GUI: Route sent successfully (" + std::to_string(keypoints.size()) + " keypoints)");
             log(LogLevel::Debug, "Route data: " + jsonData);
         }
 

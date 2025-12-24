@@ -1,4 +1,3 @@
-// MissionController.h
 #pragma once
 
 #include "CommandTypes.h"
@@ -10,7 +9,6 @@
 #include <mutex>
 #include <optional>
 
-/// Управляет выполнением миссии: конвейер waypoint и режим донаведения
 class MissionController
 {
 public:
@@ -52,7 +50,7 @@ private:
     // Структура сегмента движения
     struct MovementSegment {
         uint8_t segmentId;          // Уникальный ID сегмента (1-255)
-        commands::MotionType type;  // STRAIGHT или ROTATE
+        commands::MotionType type;
         int16_t targetValue;        // мм для движения, градусы*10 для поворота
     };
 
@@ -92,7 +90,7 @@ private:
     // Сегменты
     std::vector<MovementSegment> m_segments;
     std::atomic<size_t> m_nextSegmentIndex{ 0 };
-    std::atomic<uint8_t> m_currentSegmentId{ 1 }; // Начинаем с 1
+    std::atomic<uint8_t> m_currentSegmentId{ 1 };
 
     std::atomic<bool> m_waitingForAck{ false };
     std::atomic<uint8_t> m_currentSegmentWaiting{ 0 }; // ID текущего сегмента в ожидании

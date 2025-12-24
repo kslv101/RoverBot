@@ -1,5 +1,4 @@
-﻿// MissionController.cpp
-#include "MissionController.h"
+﻿#include "MissionController.h"
 #include "Logger.h"
 #include <cmath>
 #include <thread>
@@ -40,9 +39,8 @@ void MissionController::startMission(const std::vector<mathLib::Vec2>& waypoints
         return;
     }
 
-    stopMission(); // Останавливаем предыдущую миссию
+    stopMission();
 
-    // Разбиваем путь на сегменты
     m_segments = buildSegments(waypoints);
     if (m_segments.empty()) 
     {
@@ -50,10 +48,8 @@ void MissionController::startMission(const std::vector<mathLib::Vec2>& waypoints
         return;
     }
 
-    log(LogLevel::Info, "MissionController: Built " + std::to_string(m_segments.size()) +
-        " segments from " + std::to_string(waypoints.size()) + " waypoints");
+    log(LogLevel::Info, "MissionController: Built " + std::to_string(m_segments.size()) + " segments from " + std::to_string(waypoints.size()) + " waypoints");
 
-    // Инициализация
     m_nextSegmentIndex = 0;
     m_currentSegmentId = 1;
     m_isActive = true;
@@ -61,7 +57,6 @@ void MissionController::startMission(const std::vector<mathLib::Vec2>& waypoints
     m_waitingForAck = false;
     m_currentSegmentWaiting = 0;
 
-    // Отправляем ПЕРВЫЙ сегмент
     sendNextSegment();
 
     log(LogLevel::Info, "MissionController: Mission started");
@@ -110,7 +105,7 @@ void MissionController::update()
 
 void MissionController::handleIncomingPacket(const uint8_t* data, size_t size) 
 {
-    // Бинарный протокол: 4 байта (0xAA, segmentId, status, checksum)
+    // 4 байта (0xAA, segmentId, status, checksum)
     if (size != 4) 
     {
         log(LogLevel::Warn, "UART: Invalid packet size: " + std::to_string(size) +" (expected 4 bytes)");
@@ -127,17 +122,14 @@ void MissionController::handleIncomingPacket(const uint8_t* data, size_t size)
     uint8_t calculated = data[0] ^ data[1] ^ data[2];
     if (calculated != data[3]) 
     {
-        log(LogLevel::Error, "UART: Checksum error! Calculated: 0x" +
-            std::to_string(calculated) + ", Received: 0x" +
-            std::to_string(static_cast<int>(data[3])));
+        log(LogLevel::Error, "UART: Checksum error! Calculated: 0x" + std::to_string(calculated) + ", Received: 0x" + std::to_string(static_cast<int>(data[3])));
         return;
     }
 
     uint8_t segmentId = data[1];
     bool success = (data[2] == 0x01);
 
-    log(LogLevel::Info, "Arduino: Segment " + std::to_string(segmentId) +
-        (success ? " completed successfully" : " failed"));
+    log(LogLevel::Info, "Arduino: Segment " + std::to_string(segmentId) + (success ? " completed successfully" : " failed"));
 
     handleSegmentAcknowledgment(segmentId, success);
 }
@@ -149,16 +141,13 @@ void MissionController::handleSegmentAcknowledgment(uint8_t segmentId, bool succ
     // Проверяем, что это подтверждение для текущего сегмента
     if (!m_waitingForAck) 
     {
-        log(LogLevel::Warn, "Unexpected acknowledgment for segment " +
-            std::to_string(segmentId) + " (not waiting for ACK)");
+        log(LogLevel::Warn, "Unexpected acknowledgment for segment " + std::to_string(segmentId) + " (not waiting for ACK)");
         return;
     }
 
     if (segmentId != m_currentSegmentWaiting) 
     {
-        log(LogLevel::Error, "Segment ID mismatch: expected " +
-            std::to_string(m_currentSegmentWaiting) + ", got " +
-            std::to_string(segmentId));
+        log(LogLevel::Error, "Segment ID mismatch: expected " + std::to_string(m_currentSegmentWaiting) + ", got " + std::to_string(segmentId));
         emergencyStop();
         return;
     }
@@ -193,23 +182,23 @@ std::vector<MissionController::MovementSegment> MissionController::buildSegments
     {
         const auto& target = waypoints[i];
 
-        // 1. Вычисление угла к цели
+        // Вычисление угла к цели
         float targetAngle = calculateAngleBetween(currentPosition, target);
         float angleDiff = normalizeAngle(targetAngle - currentAngle);
 
-        // 2. Если нужно повернуть (более 5 градусов)
-        if (std::abs(angleDiff) > ANGLE_TOLERANCE) 
+        // Если нужно повернуть, пушим команду
+        if (std::abs(angleDiff) * 180.0 / M_PI > ANGLE_TOLERANCE)
         {
-            int16_t angleValue = static_cast<int16_t>(angleDiff * 10.0f);
+            int16_t angleValue = static_cast<int16_t>(angleDiff * 180.0 / M_PI * 10.0f);
             segments.push_back({ segmentId++, commands::MotionType::ROTATE, angleValue });
             currentAngle = targetAngle;
         }
 
-        // 3. Движение к точке (если расстояние > 5 см)
+        // Движение к точке
         float distance = std::hypot(target.x - currentPosition.x, target.y - currentPosition.y);
-        if (distance > DISTANCE_TOLERANCE) 
+        if (distance > DISTANCE_TOLERANCE)
         {
-            int16_t distanceMm = static_cast<int16_t>(distance * 1000.0f);
+            int16_t distanceMm = static_cast<int16_t>(distance * 100.0f);
             segments.push_back({ segmentId++, commands::MotionType::STRAIGHT, distanceMm });
             currentPosition = target;
         }
@@ -266,7 +255,7 @@ void MissionController::sendSegment(const MovementSegment& segment)
 void MissionController::sendNextSegment() 
 {
     if (!m_isActive || m_state != ExecutionState::EXECUTING) return;
-    if (m_waitingForAck) return; // Ждём подтверждение предыдущего сегмента
+    if (m_waitingForAck) return; // Ожидание подтверждения предыдущего сегмента
 
     if (m_nextSegmentIndex >= m_segments.size()) 
     {
@@ -277,14 +266,12 @@ void MissionController::sendNextSegment()
     const auto& segment = m_segments[m_nextSegmentIndex];
     sendSegment(segment);
 
-    // Устанавливаем флаг ожидания подтверждения
+    // Устанавливка флага ожидания подтверждения
     m_waitingForAck = true;
     m_currentSegmentWaiting = segment.segmentId;
     m_nextSegmentIndex++;
 
-    log(LogLevel::Info, "Sent segment " + std::to_string(segment.segmentId) +
-        " (type=" + (segment.type == commands::MotionType::STRAIGHT ? "STRAIGHT" : "ROTATE") +
-        ", value=" + std::to_string(segment.targetValue) + ")");
+    log(LogLevel::Info, "Sent segment " + std::to_string(segment.segmentId) +" (type=" + (segment.type == commands::MotionType::STRAIGHT ? "STRAIGHT" : "ROTATE") + ", value=" + std::to_string(segment.targetValue) + ")");
 }
 
 void MissionController::sendStopCommand() 
@@ -299,7 +286,7 @@ void MissionController::sendStopCommand()
 
     cmd.startByte = 0xAA;
     cmd.commandType = commands::CommandType::STOP;
-    cmd.packetId = 0; // Системная команда
+    cmd.packetId = 0;
 
     cmd.checksum = cmd.startByte ^ static_cast<uint8_t>(cmd.commandType) ^ cmd.packetId;
 
@@ -318,7 +305,7 @@ void MissionController::sendEmergencyStopCommand()
 
     cmd.startByte = 0xAA;
     cmd.commandType = commands::CommandType::EMERGENCY_STOP;
-    cmd.packetId = 0xFF; // Специальный ID
+    cmd.packetId = 0xFF;
 
     cmd.checksum = cmd.startByte ^ static_cast<uint8_t>(cmd.commandType) ^ cmd.packetId;
 

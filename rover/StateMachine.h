@@ -12,12 +12,15 @@ class StateMachine
 public:
     explicit StateMachine(Robot& robot, EventQueue& eventQueue, MissionController& missionController);
 
-    // Запрещаем копирование
+    // Запрет копирования
     StateMachine(const StateMachine&) = delete;
     StateMachine& operator=(const StateMachine&) = delete;
  
-    void run();// Главный цикл FSM
-    void stop();// Принудительная остановка
+    // Главный цикл FSM
+    void run();
+
+    // Принудительная остановка
+    void stop();
 
     State getCurrentState() const { return m_currentState.load(); }
 

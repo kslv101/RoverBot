@@ -29,7 +29,6 @@ namespace mathLib
         constexpr Vec3(float x_, float y_, float z_) : x(x_), y(y_), z(z_) {}
     };
 
-    /* ---------- constexpr функции Ч реализаци€ в заголовке ---------- */
     constexpr float dot(const Vec2& a, const Vec2& b) noexcept
     {
         return a.x * b.x + a.y * b.y;
@@ -70,7 +69,6 @@ namespace mathLib
         return a.x < b.x || (a.x == b.x && a.y < b.y);
     }
 
-    /* ---------- не-constexpr функции Ч остаютс€ в .cpp ---------- */
     float magnitude(const Vec2& v) noexcept;
     float magnitude(const Vec3& v) noexcept;
     float angleBetween(const Vec2& a, const Vec2& b) noexcept;

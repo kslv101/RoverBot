@@ -1,4 +1,3 @@
-// Event.h
 #pragma once
 #include <cstdint>
 #include <optional>

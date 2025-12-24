@@ -25,13 +25,13 @@ StateHandlers::StateHandler StateHandlers::getHandlerFor(State state) const
         return it->second;
     }
 
-    // Если состояние не найдено — возвращаем заглушку
+    // Если состояние не найдено — возвращает заглушку
     return [](Robot&, EventQueue&) { return State::Idle; };
 }
 
 State StateHandlers::handleInit() const
 {
-    // Обрабатываем одно событие за тик (не блокируемся)
+    // Обрабатываем одно событие за тик
     auto event = eventQueue.try_pop();
     if (!event) return State::Init; // нет событий — остаёмся
 
@@ -84,8 +84,7 @@ State StateHandlers::handleIdle() const
         }
         // Получаем имя цели для логирования
         auto target = robot.getTarget();
-        log(LogLevel::Info, "Starting mission to target: " +
-            (target ? target->name : "unknown"));
+        log(LogLevel::Info, "Starting mission to target: " + (target ? target->name : "unknown"));
         return State::Planning;
     }
 
@@ -261,16 +260,12 @@ State StateHandlers::handleEmergencyStop() const
     {
     case EventType::ResetEmergency:
         log(LogLevel::Info, "Emergency reset requested. Returning to Idle.");
-        robot.clearPath(); // сбрасываем все планы
-        robot.clearTarget(); // сбрасываем цель
+        robot.clearPath();
+        robot.clearTarget();
         return State::Idle;
 
     case EventType::GlobalStop:
-        // игнорируем, уже в стопе
         return State::EmergencyStop;
-
-        // В EmergencyStop НЕ обрабатываем другие события (TargetSelected, StartMission и т.д.)
-        // Оператор должен явно сбросить Emergency
 
     default:
         log(LogLevel::Debug, "EmergencyStop: ignoring event " + std::to_string(static_cast<int>(event->type)));

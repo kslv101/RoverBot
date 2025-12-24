@@ -71,7 +71,6 @@ struct Robot
         return map.getGrid();
     }
 
-
     // Путь
     mutable std::mutex pathMtx;
 
@@ -85,15 +84,13 @@ struct Robot
         currentPath = std::move(path);
         hasPlannedPath = !currentPath.empty();
         currentWaypointIndex = hasPlannedPath ? 0 : -1;
-        log(LogLevel::Info, "RobotState: Path updated with " +
-            std::to_string(currentPath.size()) + " waypoints");
+        log(LogLevel::Info, "RobotState: Path updated with " + std::to_string(currentPath.size()) + " waypoints");
     }
 
     std::optional<mathLib::Vec2> getNextWaypoint() const
     {
         std::lock_guard<std::mutex> lock(pathMtx);
-        if (!hasPlannedPath || currentWaypointIndex < 0 ||
-            currentWaypointIndex >= static_cast<int>(currentPath.size()))
+        if (!hasPlannedPath || currentWaypointIndex < 0 || currentWaypointIndex >= static_cast<int>(currentPath.size()))
         {
             return std::nullopt;
         }
@@ -181,17 +178,3 @@ inline bool checkRealSense()
     std::this_thread::sleep_for(30ms);
     return true;
 }
-
-//inline bool allocateBuffers(Robot& r, const InitParams& p)
-//{
-//    try
-//    {
-//        r.imageBuffer.clear();
-//        r.imageBuffer.resize(p.imageBufferBytes);
-//        return true;
-//    }
-//    catch (const std::bad_alloc&)
-//    {
-//        return false;
-//    }
-//}

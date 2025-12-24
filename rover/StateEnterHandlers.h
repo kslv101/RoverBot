@@ -1,5 +1,4 @@
-﻿// StateEnterHandlers.h
-#pragma once
+﻿#pragma once
 #include "State.h"
 #include <functional>
 #include <map>

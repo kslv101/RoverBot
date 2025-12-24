@@ -1,4 +1,3 @@
-// UartDriver.h
 #pragma once
 #include <functional>
 #include <string>
@@ -21,9 +20,10 @@ public:
 private:
     std::string m_port;
     int m_baudRate;
-    int m_fd; // File descriptor הכÿ Linux גלוסעמ HANDLE
+    int m_fd; // File descriptor הכÿ Linux
     PacketCallback m_callback;
     std::atomic<bool> m_connected;
+    std::vector<uint8_t> m_readBuffer;
 
     bool configurePort();
 };

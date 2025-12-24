@@ -13,11 +13,11 @@
 
 struct OccupancyGrid
 {
-    std::vector<uint8_t> data; // 0 = free, 100 = occupied, 255 = unknown (как в ROS)
+    std::vector<uint8_t> data; // 0 = free, 100 = occupied, 255 = unknown
     int width = 0;
     int height = 0;
-    float resolution = 0.05f; // meters per cell
-    mathLib::Vec2 origin{ 0.0f, 0.0f }; // world coords of (0,0) cell
+    float resolution = 1.0f; // 10см на клетку
+    mathLib::Vec2 origin{ 0.0f, 0.0f };
 };
 
 class NavigationMap
@@ -30,7 +30,7 @@ public:
     std::shared_ptr<const OccupancyGrid> getGrid() const
     {
         std::lock_guard<std::mutex> lock(gridMutex);
-        return grid; // копируем указатель (атомарно)
+        return grid; // копия указателя
     }
     const std::vector<Target>& getTargets() const { return targets; }
     bool isValid() const

@@ -57,7 +57,7 @@ namespace pathplanner
         PathPlanner();
         ~PathPlanner() = default;
 
-        // Удаляем копирование
+        // Запрет копирования
         PathPlanner(const PathPlanner&) = delete;
         PathPlanner& operator=(const PathPlanner&) = delete;
 

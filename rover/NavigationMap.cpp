@@ -14,11 +14,11 @@ bool NavigationMap::loadFromFile(const std::string& mapBasePath)
     if (!loadYamlMetadata(yamlPath, *tempGrid)) return false;
     if (!loadPngImage(pngPath, *tempGrid)) return false;
     if (!loadTargetsYaml(targetsPath)) return false;
-    inflateObstacles(0.2f); // радиус робота 0.2 м
+    inflateObstacles(1.0f); // радиус робота 1 м
 
     {
         std::lock_guard<std::mutex> lock(gridMutex);
-        grid = tempGrid; // старый grid остаётся жив, пока есть на него ссылки
+        grid = tempGrid;
     }
 
     log(LogLevel::Info, "Map loaded successfully: " + mapBasePath);
@@ -31,9 +31,9 @@ void NavigationMap::inflateObstacles(float robotRadius)
     if (!grid) return;
 
     int inflateCells = static_cast<int>(robotRadius / grid->resolution);
-    auto inflatedGrid = std::make_shared<OccupancyGrid>(*grid); // копируем для модификации
+    auto inflatedGrid = std::make_shared<OccupancyGrid>(*grid); // копия для модификации
 
-    // Проходим по всем препятствиям
+    // Проход по всем препятствиям
     for (int y = 0; y < grid->height; ++y)
     {
         for (int x = 0; x < grid->width; ++x)
@@ -41,7 +41,7 @@ void NavigationMap::inflateObstacles(float robotRadius)
             int idx = y * grid->width + x;
             if (grid->data[idx] == 100)
             { // occupied cell
-// Раздуваем на inflateCells вокруг
+                // Раздувание на inflateCells вокруг
                 for (int dy = -inflateCells; dy <= inflateCells; ++dy)
                 {
                     for (int dx = -inflateCells; dx <= inflateCells; ++dx)
@@ -58,7 +58,7 @@ void NavigationMap::inflateObstacles(float robotRadius)
         }
     }
 
-    // Заменяем на инфлейтнутую версию
+    // Замена на раздутую версию
     grid = inflatedGrid;
 
     log(LogLevel::Info, "Obstacles inflated by " + std::to_string(inflateCells) + " cells");
@@ -70,7 +70,7 @@ bool NavigationMap::loadYamlMetadata(const std::string& yamlPath, OccupancyGrid&
     try
     {
         YAML::Node node = YAML::LoadFile(yamlPath);
-        grid.resolution = node["resolution"].as<float>(0.05f);
+        grid.resolution = node["resolution"].as<float>(1.0f);
         grid.origin.x = node["origin"][0].as<float>(0.0f);
         grid.origin.y = node["origin"][1].as<float>(0.0f);
         return true;
@@ -96,16 +96,12 @@ bool NavigationMap::loadPngImage(const std::string& pngPath, OccupancyGrid& grid
     grid.height = height;
     grid.data.resize(width * height);
 
-    // Загружаем с инверсией Y -> grid в мировых координатах
     for (int y = 0; y < height; ++y)
     {
         for (int x = 0; x < width; ++x)
         {
-            // data: [0][0] = верхний левый
-            // grid: [0][0] = нижний левый -> y_grid = height - 1 - y
             uint8_t pixel = data[y * width + x];
-            int gridY = height - 1 - y;
-            grid.data[gridY * width + x] = pixel;
+            grid.data[y * width + x] = pixel;
         }
     }
 
@@ -126,8 +122,7 @@ bool NavigationMap::loadPngImage(const std::string& pngPath, OccupancyGrid& grid
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../extern/stb_image_write.h"
 
-void NavigationMap::saveGridAsDebugPng(const OccupancyGrid& grid,
-                                       const std::string& outputPath) const
+void NavigationMap::saveGridAsDebugPng(const OccupancyGrid& grid, const std::string& outputPath) const
 {
     if (grid.data.empty())
     {
@@ -143,10 +138,7 @@ void NavigationMap::saveGridAsDebugPng(const OccupancyGrid& grid,
             uint8_t val = grid.data[y * grid.width + x];
             uint8_t color = (val == 0) ? 255 : (val == 100) ? 0 : 128;
 
-            // НЕ инвертируем Y — grid в мировых координатах,
-            // но PNG требует верхний левый → инвертируем при записи
-            int pngY = grid.height - 1 - y; // ← инверсия здесь
-            int idx = (pngY * grid.width + x) * 3;
+            int idx = (y * grid.width + x) * 3;
             pixels[idx] = pixels[idx + 1] = pixels[idx + 2] = color;
         }
     }

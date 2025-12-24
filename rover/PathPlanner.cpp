@@ -17,14 +17,14 @@ namespace pathplanner
     mathLib::IVec2 PathPlanner::worldToGrid(const mathLib::Vec2& world) const
     {
         int x = static_cast<int>(std::floor((world.x - m_currentGrid->origin.x) / m_currentGrid->resolution));
-        int y = static_cast<int>(std::floor((world.y - m_currentGrid->origin.y) / m_currentGrid->resolution));
+        int y = static_cast<int>(std::floor((m_currentGrid->origin.y + world.y) / m_currentGrid->resolution));
         return { x, y };
     }
 
     mathLib::Vec2 PathPlanner::gridToWorld(const mathLib::IVec2& cell) const
     {
-        float x = m_currentGrid->origin.x + (cell.x + 0.5f) * m_currentGrid->resolution;
-        float y = m_currentGrid->origin.y + (cell.y + 0.5f) * m_currentGrid->resolution;
+        float x = m_currentGrid->origin.x + (cell.x) * m_currentGrid->resolution;
+        float y = m_currentGrid->origin.y + (cell.y) * m_currentGrid->resolution;
         return { x, y };
     }
 
@@ -158,7 +158,8 @@ namespace pathplanner
         open.push({ startCell, 0.0f, heuristic(startCell, goalCell) });
 
         // 8 направлений (dx,dy)
-        const mathLib::IVec2 directions[8] = {
+        const mathLib::IVec2 directions[8] = 
+        {
             { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 },
             { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 }
         };
@@ -269,14 +270,14 @@ namespace pathplanner
         const float minAngleRad = minAngleDeg * (M_PI / 180.0f);
         const float maxDistanceSquared = maxDistance * maxDistance;
 
-        for (size_t i = 1; i < rawPath.size() - 1; ++i) {
+        for (size_t i = 1; i < rawPath.size() - 1; ++i) 
+        {
             const auto& prev = rawPath[i - 1];
             const auto& curr = rawPath[i];
             const auto& next = rawPath[i + 1];
 
             // Проверка расстояния до последней ключевой точки
-            float distToLast = std::pow(curr.x - keypoints.back().x, 2) +
-                std::pow(curr.y - keypoints.back().y, 2);
+            float distToLast = std::pow(curr.x - keypoints.back().x, 2) + std::pow(curr.y - keypoints.back().y, 2);
 
             if (distToLast < maxDistanceSquared) continue;
 
@@ -300,5 +301,4 @@ namespace pathplanner
 
         return keypoints;
     }
-
 } // namespace pathplanner

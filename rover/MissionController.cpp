@@ -5,8 +5,8 @@
 #include <chrono>
 #include <cstring> // для memset
 
-MissionController::MissionController(Robot& robot, UartDriver& uartDriver)
-    : m_robot(robot), m_uartDriver(uartDriver) 
+MissionController::MissionController(Robot& robot, UartDriver& uartDriver, EventQueue& eventQueue)
+    : m_robot(robot), m_uartDriver(uartDriver), m_eventQueue(eventQueue)
 {
     m_uartDriver.setPacketCallback([this](const uint8_t* data, size_t size) 
         {
@@ -100,6 +100,7 @@ void MissionController::update()
         log(LogLevel::Info, "MissionController: Mission completed successfully");
         m_isActive = false;
         m_state = ExecutionState::COMPLETED;
+        m_eventQueue.push(Event(EventType::DestinationReached));
     }
 }
 

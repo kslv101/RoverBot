@@ -8,6 +8,7 @@
 #include <queue>
 #include <mutex>
 #include <optional>
+#include <EventQueue.h>
 
 class MissionController
 {
@@ -23,7 +24,7 @@ public:
     };
 
 
-    explicit MissionController(Robot& robot, UartDriver& uartDriver);
+    explicit MissionController(Robot& robot, UartDriver& uartDriver, EventQueue& eventQueue);
     ~MissionController();
 
     // Запрет копирование
@@ -82,6 +83,7 @@ private:
 
     Robot& m_robot;
     UartDriver& m_uartDriver;
+    EventQueue& m_eventQueue;
 
     // Состояние
     std::atomic<ExecutionState> m_state{ ExecutionState::IDLE };

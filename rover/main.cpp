@@ -34,7 +34,7 @@ int main()
     UartDriver uart("/dev/ttyUSB1", 115200);
     uart.connect();
 
-    MissionController missionController(robot, uart);
+    MissionController missionController(robot, uart, eventQueue);
     startCommandListener(robot, eventQueue);
 
     robot.mapPath = "maps/warehouse";
